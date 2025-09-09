@@ -1,8 +1,6 @@
 services:
   db:
     image: postgis/postgis:15-3.3
-    container_name: ifc_db
-    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -11,6 +9,7 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+      - ./infra/db/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
 
   backend:
     build: ./backend
@@ -26,6 +25,7 @@ services:
     volumes:
       - ./backend:/app
       - /app/node_modules
+    env_file: [.env]
 
   frontend:
     build: ./frontend
@@ -38,17 +38,20 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+    env_file: [.env]
 
   ml:
     build: ./ml
+    env_file: [.env]
     container_name: ifc_ml
     restart: unless-stopped
-    volumes:
-      - ./ml:/app
     environment:
       - PYTHONUNBUFFERED=1
-    depends_on:
-      - db
+      - DB_URL=${DB_URL}
+      - MOCK_PANO_ID=1
+    depends_on: [db]
+    volumes:
+      - ./ml:/app
 
 volumes:
-  db_data:
+  db_data: {}
