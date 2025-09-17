@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
--- Core tables (minimal V1 slice)
+-- Core tables
 CREATE TABLE IF NOT EXISTS properties (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS panoramas (
   heading_deg DOUBLE PRECISION,
   captured_at TIMESTAMPTZ,
   faces_json JSONB,
-  storage_uri TEXT
+  image BYTEA,
+  image_content_type TEXT,
+  image_byte_length INT
 );
 
 CREATE TABLE IF NOT EXISTS detections (

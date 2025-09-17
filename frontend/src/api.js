@@ -20,3 +20,35 @@ export async function reviewDetection({
   if (!res.ok) throw new Error("Review failed");
   return res.json();
 }
+
+// Upload image bytes directly to DB and create panorama row
+export async function ingestPanoramaWithFile({
+  file,
+  property_id,
+  level,
+  lat,
+  lon,
+  heading_deg,
+  faces_json,
+}) {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (property_id !== undefined && property_id !== "")
+    fd.append("property_id", property_id);
+  if (level) fd.append("level", level);
+  if (lat !== undefined && lat !== "") fd.append("lat", lat);
+  if (lon !== undefined && lon !== "") fd.append("lon", lon);
+  if (heading_deg !== undefined && heading_deg !== "")
+    fd.append("heading_deg", heading_deg);
+  if (faces_json) fd.append("faces_json", JSON.stringify(faces_json));
+
+  const res = await fetch(`${API}/ingest/pano-file`, {
+    method: "POST",
+    body: fd,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(t || "Ingest failed");
+  }
+  return res.json();
+}
