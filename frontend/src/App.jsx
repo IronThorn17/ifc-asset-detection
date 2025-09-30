@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { listDetections, reviewDetection, ingestPanoramaWithFile } from "./api";
+import CubeViewer from "../components/CubeViewer";
+import ImageSetPanel from "../components/ImageSetPanel";
+import PanoJump from "../components/PanoJump";
+import DetectionsTable from "../components/DetectionsTable";
+import ErrorNote from "../components/ErrorNote";
+import Spinner from "../components/Spinner";
 
 export default function App() {
   const [panoId, setPanoId] = useState(1);
@@ -14,6 +20,8 @@ export default function App() {
   const [lon, setLon] = useState("");
   const [heading, setHeading] = useState("");
   const [facesJsonText, setFacesJsonText] = useState("{ }");
+
+  const [viewerFaces, setViewerFaces] = useState(null);
 
   const parsedFaces = useMemo(() => {
     try {
@@ -100,233 +108,89 @@ export default function App() {
   }
 
   return (
-    <div
-      style={{
-        padding: 16,
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: 960,
-        margin: "0 auto",
-      }}
-    >
-      <h2>Detections (pano_id={panoId || "—"})</h2>
+    <div style={S.appShell}>
+      {/* Left side: viewer + detections */}
+      <div style={S.leftPane}>
+        <h2>3D Panorama Viewer</h2>
+        {/* <h2 style={S.h2}>Detections (pano_id={panoId || "—"})</h2>
 
-      {/* Jump to pano_id */}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <label htmlFor="panoIdInput">Jump to pano_id:</label>
-        <input
-          id="panoIdInput"
-          type="number"
-          min={1}
-          value={panoId ?? ""}
-          onChange={(e) => setPanoId(Number(e.target.value) || "")}
-          style={{ width: 120 }}
+        <PanoJump
+          panoId={panoId}
+          setPanoId={setPanoId}
+          onLoad={() => load()}
+          loading={loading}
         />
-        <button onClick={() => load()} disabled={!panoId || loading}>
-          Load
-        </button>
+
+        {panoId ? (
+          <img
+            alt="pano preview"
+            src={`${import.meta.env.VITE_API_URL}/pano/${panoId}/image`}
+            style={S.panoPreview}
+          />
+        ) : null} */}
+
+        <div style={S.viewerWrap}>
+          <CubeViewer faces={viewerFaces} />
+        </div>
+
+        <div style={S.controlsRow}>
+          <button onClick={() => load()} disabled={!panoId || loading}>
+            Refresh
+          </button>
+          <Spinner show={loading} />
+          <ErrorNote err={err} />
+        </div>
+
+        <div style={S.tableWrap}>
+          <DetectionsTable rows={rows} onReview={handleReview} />
+        </div>
       </div>
 
-      {panoId ? (
-        <img
-          alt="pano preview"
-          src={`${import.meta.env.VITE_API_URL}/pano/${panoId}/image`}
-          style={{ maxWidth: "100%", margin: "12px 0" }}
+      {/* Right side: upload / six-face set panel */}
+      <div style={S.rightPane}>
+        <ImageSetPanel
+          onLoadSet={(facesWithMeta) => setViewerFaces(facesWithMeta)}
         />
-      ) : null}
-
-      {/* Upload + optional metadata */}
-      <form
-        onSubmit={handleUploadAndIngest}
-        style={{
-          padding: 12,
-          border: "1px solid #ddd",
-          borderRadius: 8,
-          marginBottom: 20,
-        }}
-      >
-        <h3 style={{ marginTop: 0 }}>Add Panorama</h3>
-
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
-        >
-          <div style={{ gridColumn: "1 / span 2" }}>
-            <label
-              style={{ display: "block", fontWeight: 600, marginBottom: 4 }}
-            >
-              Image file
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-            />
-          </div>
-
-          {/* Optional fields — keep them blank-friendly for now */}
-          <div>
-            <label
-              style={{ display: "block", fontWeight: 600, marginBottom: 4 }}
-            >
-              Property ID (optional)
-            </label>
-            <input
-              value={propertyId}
-              onChange={(e) => setPropertyId(e.target.value)}
-              type="number"
-              placeholder="e.g., 1"
-              style={{ width: "100%" }}
-            />
-          </div>
-
-          <div>
-            <label
-              style={{ display: "block", fontWeight: 600, marginBottom: 4 }}
-            >
-              Level (optional)
-            </label>
-            <input
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-              placeholder="e.g., L1"
-              style={{ width: "100%" }}
-            />
-          </div>
-
-          <div>
-            <label
-              style={{ display: "block", fontWeight: 600, marginBottom: 4 }}
-            >
-              Latitude (optional)
-            </label>
-            <input
-              value={lat}
-              onChange={(e) => setLat(e.target.value)}
-              type="number"
-              step="any"
-              placeholder="41.8781"
-              style={{ width: "100%" }}
-            />
-          </div>
-
-          <div>
-            <label
-              style={{ display: "block", fontWeight: 600, marginBottom: 4 }}
-            >
-              Longitude (optional)
-            </label>
-            <input
-              value={lon}
-              onChange={(e) => setLon(e.target.value)}
-              type="number"
-              step="any"
-              placeholder="-87.6298"
-              style={{ width: "100%" }}
-            />
-          </div>
-
-          <div>
-            <label
-              style={{ display: "block", fontWeight: 600, marginBottom: 4 }}
-            >
-              Heading ° (optional)
-            </label>
-            <input
-              value={heading}
-              onChange={(e) => setHeading(e.target.value)}
-              type="number"
-              step="any"
-              placeholder="90"
-              style={{ width: "100%" }}
-            />
-          </div>
-
-          <div style={{ gridColumn: "1 / span 2" }}>
-            <label
-              style={{ display: "block", fontWeight: 600, marginBottom: 4 }}
-            >
-              faces_json (optional)
-            </label>
-            <textarea
-              value={facesJsonText}
-              onChange={(e) => setFacesJsonText(e.target.value)}
-              rows={4}
-              style={{ width: "100%", fontFamily: "ui-monospace, monospace" }}
-              placeholder='e.g., {"front":{"yaw":0},"back":{"yaw":180}}'
-            />
-            {parsedFaces === null && (
-              <div style={{ color: "crimson", marginTop: 4 }}>
-                Invalid JSON.
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <button
-            type="submit"
-            disabled={loading || !file || parsedFaces === null}
-          >
-            {loading ? "Uploading…" : "Upload & Create Panorama"}
-          </button>
-        </div>
-      </form>
-
-      <button onClick={() => load()} disabled={!panoId || loading}>
-        Refresh
-      </button>
-
-      {loading && <div>Loading…</div>}
-      {err && <div style={{ color: "crimson", marginBottom: 12 }}>{err}</div>}
-      {!loading && rows.length === 0 && <div>No detections yet.</div>}
-
-      {rows.length > 0 && (
-        <table
-          cellPadding={8}
-          style={{ borderCollapse: "collapse", width: "100%" }}
-        >
-          <thead>
-            <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
-              <th>ID</th>
-              <th>Class</th>
-              <th>Conf.</th>
-              <th>Face</th>
-              <th>Box [x,y,w,h]</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
-                <td>#{r.id}</td>
-                <td>{r.ifc_class || r.label_display}</td>
-                <td>{Math.round((r.confidence || 0) * 100)}%</td>
-                <td>{r.face_id}</td>
-                <td>
-                  {Array.isArray(r.bbox_xywh) ? r.bbox_xywh.join(", ") : ""}
-                </td>
-                <td>
-                  <button onClick={() => handleReview(r.id, "confirm")}>
-                    Confirm
-                  </button>
-                  <button
-                    onClick={() => handleReview(r.id, "reject")}
-                    style={{ marginLeft: 8 }}
-                  >
-                    Reject
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      </div>
     </div>
   );
 }
+
+const S = {
+  appShell: {
+    display: "grid",
+    gridTemplateColumns: "2fr 1fr",
+    height: "98vh",
+  },
+  leftPane: {
+    padding: 12,
+    overflow: "auto",
+    borderRadius: 8,
+    background: "#243642",
+    color: "#eee",
+    margin: 2,
+  },
+  rightPane: {
+    borderLeft: "1px solid #243642",
+    borderRadius: 8,
+    background: "#243642",
+    overflow: "auto",
+    margin: 2,
+  },
+  h2: { margin: "0 0 8px 0", color: "#E2F1E7" },
+  panoPreview: { maxWidth: "100%", margin: "8px 0", borderRadius: 8 },
+  viewerWrap: {
+    height: "75vh",
+    border: "1px solid #222",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  controlsRow: { marginTop: 12, display: "flex", alignItems: "center", gap: 8 },
+  tableWrap: { marginTop: 12 },
+};
+
+// color pallete
+// 243642
+// 387478
+// 629584
+// E2F1E7
