@@ -17,6 +17,7 @@ export default function CubeViewer({ faces }) {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(mount.clientWidth, mount.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
     mount.appendChild(renderer.domElement);
 
     const loader = new THREE.TextureLoader();
@@ -59,6 +60,15 @@ export default function CubeViewer({ faces }) {
     };
 
     buildSkybox(faces);
+
+    // Add subtle ambient light
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+
+    // Add directional light
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(directionalLight);
 
     // mouse-look & wheel zoom
     let isDown = false;
@@ -144,9 +154,45 @@ export default function CubeViewer({ faces }) {
     };
   }, [faces]);
 
-  return <div ref={mountRef} style={S.root} />;
+  return (
+    <div ref={mountRef} style={S.root}>
+      <div style={S.overlay}>
+        <div style={S.controlsInfo}>
+          <span style={S.controlItem}><i className="fas fa-mouse-pointer"></i> Drag to look around</span>
+          <span style={S.controlItem}><i className="fas fa-search-plus"></i> Scroll to zoom</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const S = {
-  root: { width: "100%", height: "100%" },
+  root: { 
+    width: "100%", 
+    height: "100%",
+    position: "relative",
+    borderRadius: "12px",
+    overflow: "hidden",
+  },
+  overlay: {
+    position: "absolute",
+    bottom: "20px",
+    left: "20px",
+    zIndex: 10,
+    background: "rgba(13, 27, 42, 0.7)",
+    padding: "10px 15px",
+    borderRadius: "8px",
+    backdropFilter: "blur(5px)",
+  },
+  controlsInfo: {
+    display: "flex",
+    gap: "15px",
+    color: "#bbdefb",
+    fontSize: "13px",
+  },
+  controlItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+  },
 };

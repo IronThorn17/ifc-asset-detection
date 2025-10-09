@@ -109,48 +109,61 @@ export default function App() {
 
   return (
     <div style={S.appShell}>
-      {/* Left side: viewer + detections */}
-      <div style={S.leftPane}>
-        <h2>3D Panorama Viewer</h2>
-        {/* <h2 style={S.h2}>Detections (pano_id={panoId || "—"})</h2>
-
-        <PanoJump
-          panoId={panoId}
-          setPanoId={setPanoId}
-          onLoad={() => load()}
-          loading={loading}
-        />
-
-        {panoId ? (
-          <img
-            alt="pano preview"
-            src={`${import.meta.env.VITE_API_URL}/pano/${panoId}/image`}
-            style={S.panoPreview}
+      {/* Header */}
+      <div style={S.header}>
+        <h1>IFC Asset Detection</h1>
+        <div style={S.headerControls}>
+          <PanoJump
+            panoId={panoId}
+            setPanoId={setPanoId}
+            onLoad={() => load()}
+            loading={loading}
           />
-        ) : null} */}
-
-        <div style={S.viewerWrap}>
-          <CubeViewer faces={viewerFaces} />
-        </div>
-
-        <div style={S.controlsRow}>
-          <button onClick={() => load()} disabled={!panoId || loading}>
-            Refresh
+          <button 
+            onClick={() => load()} 
+            disabled={!panoId || loading}
+            style={S.refreshBtn}
+          >
+            <i className="fas fa-sync-alt"></i> Refresh
           </button>
           <Spinner show={loading} />
-          <ErrorNote err={err} />
-        </div>
-
-        <div style={S.tableWrap}>
-          <DetectionsTable rows={rows} onReview={handleReview} />
         </div>
       </div>
 
-      {/* Right side: upload / six-face set panel */}
-      <div style={S.rightPane}>
-        <ImageSetPanel
-          onLoadSet={(facesWithMeta) => setViewerFaces(facesWithMeta)}
-        />
+      {/* Main Content */}
+      <div style={S.mainContent}>
+        {/* Left side: viewer + detections */}
+        <div style={S.leftPane}>
+          <div style={S.sectionHeader}>
+            <h2>3D Panorama Viewer</h2>
+            <div style={S.panoInfo}>
+              {panoId ? `Pano ID: ${panoId}` : "No panorama loaded"}
+            </div>
+          </div>
+          
+          <div style={S.viewerWrap}>
+            <CubeViewer faces={viewerFaces} />
+          </div>
+
+          <div style={S.sectionHeader}>
+            <h2>Detections</h2>
+            <ErrorNote err={err} />
+          </div>
+
+          <div style={S.tableWrap}>
+            <DetectionsTable rows={rows} onReview={handleReview} />
+          </div>
+        </div>
+
+        {/* Right side: upload / six-face set panel */}
+        <div style={S.rightPane}>
+          <div style={S.sectionHeader}>
+            <h2>Image Set Panel</h2>
+          </div>
+          <ImageSetPanel
+            onLoadSet={(facesWithMeta) => setViewerFaces(facesWithMeta)}
+          />
+        </div>
       </div>
     </div>
   );
@@ -158,39 +171,84 @@ export default function App() {
 
 const S = {
   appShell: {
-    display: "grid",
-    gridTemplateColumns: "2fr 1fr",
-    height: "98vh",
+    display: "flex",
+    flexDirection: "column",
+    height: "100vh",
+    background: "linear-gradient(135deg, #1a2a3a 0%, #0d1b2a 100%)",
+    color: "#e0e0e0",
+    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
   },
-  leftPane: {
-    padding: 12,
-    overflow: "auto",
-    borderRadius: 8,
-    background: "#243642",
-    color: "#eee",
-    margin: 2,
+  header: {
+    padding: "20px 30px",
+    backgroundColor: "rgba(13, 27, 42, 0.9)",
+    borderBottom: "1px solid #2a4d69",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
   },
-  rightPane: {
-    borderLeft: "1px solid #243642",
-    borderRadius: 8,
-    background: "#243642",
-    overflow: "auto",
-    margin: 2,
+  headerControls: {
+    display: "flex",
+    alignItems: "center",
+    gap: "15px",
   },
-  h2: { margin: "0 0 8px 0", color: "#E2F1E7" },
-  panoPreview: { maxWidth: "100%", margin: "8px 0", borderRadius: 8 },
-  viewerWrap: {
-    height: "75vh",
-    border: "1px solid #222",
-    borderRadius: 8,
+  refreshBtn: {
+    backgroundColor: "#4a9bff",
+    color: "white",
+    border: "none",
+    padding: "8px 16px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    fontWeight: "600",
+    transition: "all 0.3s ease",
+  },
+  mainContent: {
+    display: "flex",
+    flex: 1,
     overflow: "hidden",
   },
-  controlsRow: { marginTop: 12, display: "flex", alignItems: "center", gap: 8 },
-  tableWrap: { marginTop: 12 },
+  leftPane: {
+    flex: 2,
+    padding: "20px",
+    overflow: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px",
+  },
+  rightPane: {
+    flex: 1,
+    borderLeft: "1px solid #2a4d69",
+    backgroundColor: "rgba(26, 42, 58, 0.7)",
+    overflow: "auto",
+    padding: "20px",
+  },
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "10px",
+  },
+  viewerWrap: {
+    flex: 1,
+    minHeight: "60vh",
+    border: "1px solid #2a4d69",
+    borderRadius: "12px",
+    overflow: "hidden",
+    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+    backgroundColor: "#0a1929",
+  },
+  tableWrap: {
+    backgroundColor: "rgba(26, 42, 58, 0.7)",
+    borderRadius: "12px",
+    padding: "15px",
+    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+  },
+  panoInfo: {
+    fontSize: "14px",
+    color: "#4a9bff",
+    fontWeight: "500",
+  },
 };
-
-// color pallete
-// 243642
-// 387478
-// 629584
-// E2F1E7

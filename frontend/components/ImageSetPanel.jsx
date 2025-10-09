@@ -40,61 +40,101 @@ export default function ImageSetPanel({ onLoadSet }) {
 
   return (
     <div style={S.wrap}>
-      <h3 style={S.h3}>Image Set • Coordinates</h3>
-      <div style={S.grid2}>
-        <LabeledInput
-          label="Latitude"
-          type="number"
-          step="any"
-          value={coords.lat}
-          onChange={(v) => setCoords((s) => ({ ...s, lat: v }))}
-        />
-        <LabeledInput
-          label="Longitude"
-          type="number"
-          step="any"
-          value={coords.lon}
-          onChange={(v) => setCoords((s) => ({ ...s, lon: v }))}
-        />
-        <LabeledInput
-          label="Altitude (m)"
-          type="number"
-          step="any"
-          value={coords.alt}
-          onChange={(v) => setCoords((s) => ({ ...s, alt: v }))}
-        />
-        <LabeledInput
-          label="Timestamp"
-          type="datetime-local"
-          value={coords.timestamp}
-          onChange={(v) => setCoords((s) => ({ ...s, timestamp: v }))}
-        />
+      <div style={S.sectionHeader}>
+        <h3 style={S.h3}>
+          <i className="fas fa-images"></i> Image Set
+        </h3>
+        <p style={S.sectionSubtitle}>Upload six face images for panorama</p>
+      </div>
+      
+      <div style={S.coordsSection}>
+        <h4 style={S.h4}>
+          <i className="fas fa-map-marker-alt"></i> Coordinates
+        </h4>
+        <div style={S.grid2}>
+          <LabeledInput
+            label="Latitude"
+            type="number"
+            step="any"
+            value={coords.lat}
+            onChange={(v) => setCoords((s) => ({ ...s, lat: v }))}
+          />
+          <LabeledInput
+            label="Longitude"
+            type="number"
+            step="any"
+            value={coords.lon}
+            onChange={(v) => setCoords((s) => ({ ...s, lon: v }))}
+          />
+          <LabeledInput
+            label="Altitude (m)"
+            type="number"
+            step="any"
+            value={coords.alt}
+            onChange={(v) => setCoords((s) => ({ ...s, alt: v }))}
+          />
+          <LabeledInput
+            label="Timestamp"
+            type="datetime-local"
+            value={coords.timestamp}
+            onChange={(v) => setCoords((s) => ({ ...s, timestamp: v }))}
+          />
+        </div>
       </div>
 
-      <h4 style={S.h4}>Six Faces</h4>
-      <div style={S.faceList}>
-        {FACE_KEYS.map((face) => (
-          <div key={face} style={S.faceRow}>
-            <strong style={S.faceLabel}>{face}</strong>
-            <input
-              type="file"
-              accept="image/*"
-              style={S.btn}
-              onChange={(e) => handleFile(face, e.target.files?.[0] || null)}
-            />
-            {previews[face] && (
-              <img src={previews[face]} alt={face} style={S.thumb} />
-            )}
-          </div>
-        ))}
+      <div style={S.facesSection}>
+        <h4 style={S.h4}>
+          <i className="fas fa-cube"></i> Six Faces
+        </h4>
+        <div style={S.faceList}>
+          {FACE_KEYS.map((face) => (
+            <div key={face} style={S.faceRow}>
+              <div style={S.faceInfo}>
+                <strong style={S.faceLabel}>{face}</strong>
+                {previews[face] && (
+                  <span style={S.uploadStatus}>
+                    <i className="fas fa-check-circle"></i> Uploaded
+                  </span>
+                )}
+              </div>
+              <div style={S.fileInputContainer}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={S.fileInput}
+                  onChange={(e) => handleFile(face, e.target.files?.[0] || null)}
+                />
+                <div style={S.fileInputLabel}>
+                  <i className="fas fa-upload"></i> Choose File
+                </div>
+              </div>
+              {previews[face] && (
+                <img src={previews[face]} alt={face} style={S.thumb} />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
-      <button disabled={!canLoad} onClick={handleLoad} style={S.btn}>
-        Load Into Viewer
+      <button 
+        disabled={!canLoad} 
+        onClick={handleLoad} 
+        style={{...S.btn, ...(canLoad ? S.btnActive : {})}}
+      >
+        <i className="fas fa-cube"></i> Load Into Viewer
       </button>
-      <div style={S.note}>{note}</div>
+      
+      {note && (
+        <div style={S.note}>
+          <i className="fas fa-info-circle"></i> {note}
+        </div>
+      )}
 
-      <hr style={S.hr} />
+      <div style={S.helpSection}>
+        <p style={S.help}>
+          <i className="fas fa-info-circle"></i> Upload all six face images to create a 360° panorama
+        </p>
+      </div>
     </div>
   );
 }
@@ -113,38 +153,168 @@ function LabeledInput({ label, onChange, ...rest }) {
 }
 
 const S = {
-  wrap: { padding: 16, color: "#E2F1E7" },
-  h3: { margin: "8px 0 8px", color: "#E2F1E7" },
-  h4: { margin: "16px 0 8px" },
-  grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
-  faceList: { display: "grid", gridTemplateColumns: "1fr", gap: 8 },
-  faceRow: { display: "flex", alignItems: "center", gap: 8 },
+  wrap: { 
+    padding: "20px",
+    color: "#E2F1E7",
+  },
+  sectionHeader: {
+    marginBottom: "25px",
+  },
+  h3: { 
+    margin: "0 0 8px",
+    color: "#E2F1E7",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+  },
+  sectionSubtitle: {
+    margin: 0,
+    color: "#90a4ae",
+    fontSize: "0.9rem",
+  },
+  h4: { 
+    margin: "0 0 15px",
+    color: "#bbdefb",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  coordsSection: {
+    marginBottom: "25px",
+    padding: "15px",
+    backgroundColor: "rgba(30, 58, 95, 0.3)",
+    borderRadius: "8px",
+  },
+  facesSection: {
+    marginBottom: "25px",
+  },
+  grid2: { 
+    display: "grid", 
+    gridTemplateColumns: "1fr 1fr", 
+    gap: "12px" 
+  },
+  faceList: { 
+    display: "flex", 
+    flexDirection: "column", 
+    gap: "15px" 
+  },
+  faceRow: { 
+    display: "flex", 
+    flexDirection: "column",
+    gap: "8px",
+    padding: "12px",
+    backgroundColor: "rgba(13, 27, 42, 0.5)",
+    borderRadius: "8px",
+    border: "1px solid rgba(42, 77, 105, 0.5)",
+  },
+  faceInfo: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   faceLabel: {
-    width: 80,
     textTransform: "capitalize",
     color: "#E2F1E7",
+    fontWeight: "600",
   },
-  thumb: { height: 36, borderRadius: 4 },
-  btn: {
-    marginTop: 12,
-    padding: "8px 12px",
-    borderRadius: 8,
-    border: "1px solid #243642",
-    background: "#387478",
-    color: "#E2F1E7",
+  uploadStatus: {
+    fontSize: "0.8rem",
+    color: "#66bb6a",
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+  },
+  fileInputContainer: {
+    position: "relative",
+  },
+  fileInput: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    opacity: 0,
     cursor: "pointer",
   },
-  note: { minHeight: 18, opacity: 0.8, marginTop: 6 },
-  hr: { borderColor: "#387478", margin: "16px 0" },
-  help: { opacity: 0.85, fontSize: 13 },
+  fileInputLabel: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    padding: "8px 12px",
+    backgroundColor: "rgba(42, 77, 105, 0.5)",
+    color: "#bbdefb",
+    borderRadius: "6px",
+    border: "1px dashed #2a4d69",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+  },
+  thumb: { 
+    height: "60px", 
+    borderRadius: "6px",
+    border: "1px solid #2a4d69",
+    marginTop: "5px",
+  },
+  btn: {
+    width: "100%",
+    padding: "12px",
+    borderRadius: "8px",
+    border: "1px solid #243642",
+    background: "rgba(56, 116, 120, 0.3)",
+    color: "#90a4ae",
+    cursor: "not-allowed",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    fontWeight: "600",
+    transition: "all 0.3s ease",
+  },
+  btnActive: {
+    background: "linear-gradient(135deg, #4a9bff, #2a4d69)",
+    color: "#fff",
+    cursor: "pointer",
+    boxShadow: "0 4px 12px rgba(74, 155, 255, 0.3)",
+  },
+  note: { 
+    minHeight: "18px", 
+    opacity: 0.9, 
+    marginTop: "15px",
+    padding: "10px",
+    backgroundColor: "rgba(30, 58, 95, 0.3)",
+    borderRadius: "6px",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  helpSection: {
+    marginTop: "20px",
+    padding: "15px",
+    backgroundColor: "rgba(30, 58, 95, 0.2)",
+    borderRadius: "8px",
+  },
+  help: { 
+    opacity: 0.85, 
+    fontSize: "0.85rem", 
+    margin: 0,
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "8px",
+  },
 
-  inputWrap: { display: "grid", gap: 4 },
-  inputLabel: { fontWeight: 600 },
+  inputWrap: { 
+    display: "flex", 
+    flexDirection: "column",
+    gap: "6px",
+  },
+  inputLabel: { 
+    fontWeight: "500",
+    fontSize: "0.9rem",
+  },
   input: {
-    background: "#387478",
+    background: "rgba(30, 58, 95, 0.5)",
     color: "#E2F1E7",
-    border: "1px solid #333",
-    borderRadius: 6,
-    padding: "6px 8px",
+    border: "1px solid #2a4d69",
+    borderRadius: "6px",
+    padding: "10px 12px",
+    transition: "all 0.2s ease",
   },
 };
