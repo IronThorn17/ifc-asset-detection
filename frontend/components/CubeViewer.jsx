@@ -6,6 +6,9 @@ export default function CubeViewer({ faces }) {
 
   useEffect(() => {
     const mount = mountRef.current;
+    if (!mount) return;
+
+    // --- Scene & Camera setup ---
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
       75,
@@ -20,20 +23,26 @@ export default function CubeViewer({ faces }) {
     renderer.setPixelRatio(window.devicePixelRatio);
     mount.appendChild(renderer.domElement);
 
+    // --- Texture loader setup (with CORS) ---
     const loader = new THREE.TextureLoader();
+    loader.crossOrigin = "anonymous";
+
     let skybox = null;
     let textures = {};
 
+    // --- Build or rebuild the cubemap ---
     const buildSkybox = (f) => {
+      if (!f) return;
       const order = [
-        ["px", f?.right],
-        ["nx", f?.left],
-        ["py", f?.top],
-        ["ny", f?.bottom],
-        ["pz", f?.front],
-        ["nz", f?.back],
+        ["px", f.right],
+        ["nx", f.left],
+        ["py", f.top],
+        ["ny", f.bottom],
+        ["pz", f.front],
+        ["nz", f.back],
       ];
 
+      // dispose previous geometry and materials
       if (skybox) {
         skybox.geometry.dispose();
         skybox.material.forEach((m) => m.dispose());
@@ -43,8 +52,19 @@ export default function CubeViewer({ faces }) {
       }
 
       const materials = order.map(([key, url]) => {
-        const tex = url ? loader.load(url) : null;
-        if (tex) tex.colorSpace = THREE.SRGBColorSpace;
+        let tex = null;
+        if (url) {
+          tex = loader.load(
+            url,
+            () => console.log(`✅ Loaded: ${url}`),
+            undefined,
+            (err) => console.error(`❌ Failed to load: ${url}`, err)
+          );
+          tex.colorSpace = THREE.SRGBColorSpace;
+        } else {
+          console.warn(`⚠️ Missing texture for face: ${key}`);
+        }
+
         textures[key] = tex;
         return new THREE.MeshBasicMaterial({
           map: tex || null,
@@ -59,18 +79,17 @@ export default function CubeViewer({ faces }) {
       scene.add(skybox);
     };
 
+    // --- Initial build ---
     buildSkybox(faces);
 
-    // Add subtle ambient light
+    // --- Lighting ---
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
-
-    // Add directional light
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     directionalLight.position.set(1, 1, 1);
     scene.add(directionalLight);
 
-    // mouse-look & wheel zoom
+    // --- Mouse look controls ---
     let isDown = false;
     let yaw = 0,
       pitch = 0,
@@ -87,8 +106,8 @@ export default function CubeViewer({ faces }) {
     };
     const onMove = (e) => {
       if (!isDown) return;
-      const dx = e.clientX - lx,
-        dy = e.clientY - ly;
+      const dx = e.clientX - lx;
+      const dy = e.clientY - ly;
       lx = e.clientX;
       ly = e.clientY;
       yaw -= dx * 0.0025;
@@ -110,7 +129,7 @@ export default function CubeViewer({ faces }) {
     window.addEventListener("mousemove", onMove);
     mount.addEventListener("wheel", onWheel, { passive: true });
 
-    // resize
+    // --- Resize observer ---
     const onResize = () => {
       renderer.setSize(mount.clientWidth, mount.clientHeight);
       camera.aspect = mount.clientWidth / mount.clientHeight;
@@ -119,6 +138,7 @@ export default function CubeViewer({ faces }) {
     const ro = new ResizeObserver(onResize);
     ro.observe(mount);
 
+    // --- Render loop ---
     let raf = 0;
     const loop = () => {
       camera.rotation.set(pitch, yaw, 0, "YXZ");
@@ -127,15 +147,16 @@ export default function CubeViewer({ faces }) {
     };
     loop();
 
-    // simple faces swap check
+    // --- Watch for face changes ---
     let lastFaces = faces;
     const swapCheck = setInterval(() => {
-      if (lastFaces !== faces) {
+      if (lastFaces !== faces && faces) {
         lastFaces = faces;
         buildSkybox(faces);
       }
-    }, 200);
+    }, 300);
 
+    // --- Cleanup ---
     return () => {
       clearInterval(swapCheck);
       cancelAnimationFrame(raf);
@@ -144,13 +165,15 @@ export default function CubeViewer({ faces }) {
       window.removeEventListener("mouseup", onUp);
       window.removeEventListener("mousemove", onMove);
       mount.removeEventListener("wheel", onWheel);
+
       renderer.dispose();
       Object.values(textures).forEach((t) => t?.dispose());
       if (skybox) {
         skybox.geometry.dispose();
         skybox.material.forEach((m) => m.dispose());
       }
-      mount.removeChild(renderer.domElement);
+      if (renderer.domElement.parentNode === mount)
+        mount.removeChild(renderer.domElement);
     };
   }, [faces]);
 
@@ -158,8 +181,12 @@ export default function CubeViewer({ faces }) {
     <div ref={mountRef} style={S.root}>
       <div style={S.overlay}>
         <div style={S.controlsInfo}>
-          <span style={S.controlItem}><i className="fas fa-mouse-pointer"></i> Drag to look around</span>
-          <span style={S.controlItem}><i className="fas fa-search-plus"></i> Scroll to zoom</span>
+          <span style={S.controlItem}>
+            <i className="fas fa-mouse-pointer"></i> Drag to look around
+          </span>
+          <span style={S.controlItem}>
+            <i className="fas fa-search-plus"></i> Scroll to zoom
+          </span>
         </div>
       </div>
     </div>
@@ -167,12 +194,13 @@ export default function CubeViewer({ faces }) {
 }
 
 const S = {
-  root: { 
-    width: "100%", 
+  root: {
+    width: "100%",
     height: "100%",
     position: "relative",
     borderRadius: "12px",
     overflow: "hidden",
+    backgroundColor: "#000",
   },
   overlay: {
     position: "absolute",

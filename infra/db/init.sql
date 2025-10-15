@@ -14,10 +14,17 @@ CREATE TABLE IF NOT EXISTS panoramas (
   level TEXT,
   lat DOUBLE PRECISION,
   lon DOUBLE PRECISION,
+  alt DOUBLE PRECISION,
   heading_deg DOUBLE PRECISION,
   captured_at TIMESTAMPTZ,
   faces_json JSONB,
-  image BYTEA,
+  -- six cubemap images
+  img_top BYTEA,
+  img_bottom BYTEA,
+  img_front BYTEA,
+  img_back BYTEA,
+  img_left BYTEA,
+  img_right BYTEA,
   image_content_type TEXT,
   image_byte_length INT
 );

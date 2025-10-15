@@ -13,23 +13,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  const [file, setFile] = useState(null);
   const [level, setLevel] = useState("");
   const [propertyId, setPropertyId] = useState("");
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
-  const [heading, setHeading] = useState("");
-  const [facesJsonText, setFacesJsonText] = useState("{ }");
 
   const [viewerFaces, setViewerFaces] = useState(null);
-
-  const parsedFaces = useMemo(() => {
-    try {
-      return facesJsonText.trim() ? JSON.parse(facesJsonText) : {};
-    } catch {
-      return null;
-    }
-  }, [facesJsonText]);
 
   async function load(current = panoId) {
     if (!current) return;
@@ -46,57 +35,27 @@ export default function App() {
     }
   }
 
+  async function loadFaces(panoId) {
+    if (!panoId) return null;
+    const base = `http://localhost:5000/pano/${panoId}/image`;
+    return {
+      top: `${base}/top`,
+      bottom: `${base}/bottom`,
+      front: `${base}/front`,
+      back: `${base}/back`,
+      left: `${base}/left`,
+      right: `${base}/right`,
+    };
+  }
+
   useEffect(() => {
     load();
-    // const id = setInterval(() => load(), 5000);
-    // return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    (async () => {
+      const faces = await loadFaces(panoId);
+      setViewerFaces(faces);
+    })();
   }, [panoId]);
-
-  async function handleUploadAndIngest(e) {
-    e.preventDefault();
-    if (!file) {
-      setErr("Please choose an image.");
-      return;
-    }
-    if (parsedFaces === null) {
-      setErr("faces_json is invalid JSON.");
-      return;
-    }
-
-    try {
-      setErr("");
-      setLoading(true);
-
-      const ing = await ingestPanoramaWithFile({
-        file,
-        property_id: propertyId === "" ? null : Number(propertyId),
-        level,
-        lat,
-        lon,
-        heading_deg: heading,
-        faces_json: parsedFaces || {},
-      });
-
-      if (!ing.ok) throw new Error("Ingest failed");
-
-      setPanoId(ing.pano_id);
-      await load(ing.pano_id);
-
-      // reset the form
-      setFile(null);
-      setLevel("");
-      setPropertyId("");
-      setLat("");
-      setLon("");
-      setHeading("");
-      setFacesJsonText("{ }");
-    } catch (e) {
-      setErr(e.message || "Upload/ingest failed");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function handleReview(id, action) {
     try {
@@ -119,8 +78,8 @@ export default function App() {
             onLoad={() => load()}
             loading={loading}
           />
-          <button 
-            onClick={() => load()} 
+          <button
+            onClick={() => load()}
             disabled={!panoId || loading}
             style={S.refreshBtn}
           >
@@ -140,7 +99,7 @@ export default function App() {
               {panoId ? `Pano ID: ${panoId}` : "No panorama loaded"}
             </div>
           </div>
-          
+
           <div style={S.viewerWrap}>
             <CubeViewer faces={viewerFaces} />
           </div>

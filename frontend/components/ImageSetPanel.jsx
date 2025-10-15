@@ -8,10 +8,13 @@ export default function ImageSetPanel({ onLoadSet }) {
     lon: "",
     alt: "",
     timestamp: "",
+    property_id: "",
+    level: "",
   });
   const [files, setFiles] = useState({});
   const [previews, setPreviews] = useState({});
   const [note, setNote] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   const canLoad = useMemo(() => FACE_KEYS.every((k) => !!files[k]), [files]);
 
@@ -38,6 +41,40 @@ export default function ImageSetPanel({ onLoadSet }) {
     setTimeout(() => setNote(""), 1200);
   };
 
+  const handleUpload = async () => {
+    if (!canLoad) return;
+    try {
+      setUploading(true);
+      setNote("Uploading image set...");
+
+      const formData = new FormData();
+      for (const face of FACE_KEYS) {
+        formData.append(face, files[face]);
+      }
+
+      // Attach metadata
+      Object.entries(coords).forEach(([k, v]) => formData.append(k, v));
+
+      const res = await fetch("http://localhost:5000/ingest/pano-set", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (data.ok) {
+        setNote(`Successfully uploaded (pano_id=${data.pano_id})`);
+        // Clear after a few seconds
+        setTimeout(() => setNote(""), 3000);
+      } else {
+        setNote(`Error: ${data.error || "Upload failed"}`);
+      }
+    } catch (err) {
+      setNote(`Error: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div style={S.wrap}>
       <div style={S.sectionHeader}>
@@ -46,7 +83,7 @@ export default function ImageSetPanel({ onLoadSet }) {
         </h3>
         <p style={S.sectionSubtitle}>Upload six face images for panorama</p>
       </div>
-      
+
       <div style={S.coordsSection}>
         <h4 style={S.h4}>
           <i className="fas fa-map-marker-alt"></i> Coordinates
@@ -102,7 +139,9 @@ export default function ImageSetPanel({ onLoadSet }) {
                   type="file"
                   accept="image/*"
                   style={S.fileInput}
-                  onChange={(e) => handleFile(face, e.target.files?.[0] || null)}
+                  onChange={(e) =>
+                    handleFile(face, e.target.files?.[0] || null)
+                  }
                 />
                 <div style={S.fileInputLabel}>
                   <i className="fas fa-upload"></i> Choose File
@@ -116,14 +155,26 @@ export default function ImageSetPanel({ onLoadSet }) {
         </div>
       </div>
 
-      <button 
-        disabled={!canLoad} 
-        onClick={handleLoad} 
-        style={{...S.btn, ...(canLoad ? S.btnActive : {})}}
+      <button
+        disabled={!canLoad || uploading}
+        onClick={handleUpload}
+        style={{
+          ...S.btn,
+          ...(canLoad && !uploading ? S.btnActive : {}),
+          ...(uploading ? S.btnDisabled : {}),
+        }}
       >
-        <i className="fas fa-cube"></i> Load Into Viewer
+        {uploading ? (
+          <>
+            <i className="fas fa-spinner fa-spin"></i> Uploading...
+          </>
+        ) : (
+          <>
+            <i className="fas fa-cloud-upload-alt"></i> Upload to Backend
+          </>
+        )}
       </button>
-      
+
       {note && (
         <div style={S.note}>
           <i className="fas fa-info-circle"></i> {note}
@@ -132,7 +183,8 @@ export default function ImageSetPanel({ onLoadSet }) {
 
       <div style={S.helpSection}>
         <p style={S.help}>
-          <i className="fas fa-info-circle"></i> Upload all six face images to create a 360° panorama
+          <i className="fas fa-info-circle"></i> Upload all six face images to
+          create a 360° panorama
         </p>
       </div>
     </div>
@@ -153,14 +205,14 @@ function LabeledInput({ label, onChange, ...rest }) {
 }
 
 const S = {
-  wrap: { 
+  wrap: {
     padding: "20px",
     color: "#E2F1E7",
   },
   sectionHeader: {
     marginBottom: "25px",
   },
-  h3: { 
+  h3: {
     margin: "0 0 8px",
     color: "#E2F1E7",
     display: "flex",
@@ -172,7 +224,7 @@ const S = {
     color: "#90a4ae",
     fontSize: "0.9rem",
   },
-  h4: { 
+  h4: {
     margin: "0 0 15px",
     color: "#bbdefb",
     display: "flex",
@@ -188,18 +240,18 @@ const S = {
   facesSection: {
     marginBottom: "25px",
   },
-  grid2: { 
-    display: "grid", 
-    gridTemplateColumns: "1fr 1fr", 
-    gap: "12px" 
+  grid2: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "12px",
   },
-  faceList: { 
-    display: "flex", 
-    flexDirection: "column", 
-    gap: "15px" 
+  faceList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "15px",
   },
-  faceRow: { 
-    display: "flex", 
+  faceRow: {
+    display: "flex",
     flexDirection: "column",
     gap: "8px",
     padding: "12px",
@@ -247,8 +299,8 @@ const S = {
     cursor: "pointer",
     transition: "all 0.2s ease",
   },
-  thumb: { 
-    height: "60px", 
+  thumb: {
+    height: "60px",
     borderRadius: "6px",
     border: "1px solid #2a4d69",
     marginTop: "5px",
@@ -274,9 +326,9 @@ const S = {
     cursor: "pointer",
     boxShadow: "0 4px 12px rgba(74, 155, 255, 0.3)",
   },
-  note: { 
-    minHeight: "18px", 
-    opacity: 0.9, 
+  note: {
+    minHeight: "18px",
+    opacity: 0.9,
     marginTop: "15px",
     padding: "10px",
     backgroundColor: "rgba(30, 58, 95, 0.3)",
@@ -291,21 +343,21 @@ const S = {
     backgroundColor: "rgba(30, 58, 95, 0.2)",
     borderRadius: "8px",
   },
-  help: { 
-    opacity: 0.85, 
-    fontSize: "0.85rem", 
+  help: {
+    opacity: 0.85,
+    fontSize: "0.85rem",
     margin: 0,
     display: "flex",
     alignItems: "flex-start",
     gap: "8px",
   },
 
-  inputWrap: { 
-    display: "flex", 
+  inputWrap: {
+    display: "flex",
     flexDirection: "column",
     gap: "6px",
   },
-  inputLabel: { 
+  inputLabel: {
     fontWeight: "500",
     fontSize: "0.9rem",
   },
