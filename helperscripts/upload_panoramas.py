@@ -8,7 +8,7 @@ DB_CONFIG = {
     "dbname": "ifc_assets",
     "user": "postgres",
     "password": "postgres",
-    "host": "localhost",
+    "host": "localhost",  # use 'db' if running inside docker network
     "port": "5432",
 }
 
@@ -16,10 +16,13 @@ PROPERTY_NAME = "Test Property"
 PROPERTY_ADDR = "Sample Address"
 # ----------------------------
 
+
 def connect_db():
     return psycopg2.connect(**DB_CONFIG)
 
+
 def ensure_property(cur):
+    """Creates the test property if it doesn't exist and returns its ID."""
     cur.execute("SELECT id FROM properties WHERE name = %s", (PROPERTY_NAME,))
     row = cur.fetchone()
     if row:
@@ -31,11 +34,18 @@ def ensure_property(cur):
     )
     return cur.fetchone()[0]
 
+
 def read_image_bytes(path):
-    with open(path, "rb") as f:
-        return f.read()
+    """Reads an image file as bytes, returning None if not found."""
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+
 
 def insert_pano(cur, property_id, pano_id, face_bytes):
+    """Inserts a panorama record with whatever images exist."""
     cur.execute(
         """
         INSERT INTO panoramas (
@@ -51,8 +61,9 @@ def insert_pano(cur, property_id, pano_id, face_bytes):
         (
             property_id,
             "Level 1",
-            0.0, 0.0, 0.0, 0.0,  # placeholder geo
-            None, None,  # top, bottom missing
+            0.0, 0.0, 0.0, 0.0,
+            face_bytes.get("t"),
+            face_bytes.get("d"),
             face_bytes.get("f"),
             face_bytes.get("b"),
             face_bytes.get("l"),
@@ -62,20 +73,28 @@ def insert_pano(cur, property_id, pano_id, face_bytes):
         ),
     )
 
+
 def upload_panoramas(base_dir):
+    """Scans folder for *_<dir>.jpg images and uploads grouped sets."""
     conn = connect_db()
     cur = conn.cursor()
     property_id = ensure_property(cur)
 
-    # Group files by ID
-    pattern = re.compile(r"(\d+)_([fblr])", re.IGNORECASE)
+    # Match patterns like "12345_f.jpg" or "987654_t.jpeg"
+    pattern = re.compile(r"(\d+)_([fblrtd])\.(jpg|jpeg|png)$", re.IGNORECASE)
     grouped = {}
 
-    for file in os.listdir(base_dir):
-        match = pattern.match(file)
-        if match:
-            pano_id, direction = match.groups()
-            grouped.setdefault(pano_id, {})[direction.lower()] = os.path.join(base_dir, file)
+    # Walk through all subdirectories
+    for root, _, files in os.walk(base_dir):
+        for file in files:
+            match = pattern.match(file)
+            if match:
+                pano_id, direction, _ = match.groups()
+                grouped.setdefault(pano_id, {})[direction.lower()] = os.path.join(root, file)
+
+    if not grouped:
+        print("No matching panorama images found.")
+        return
 
     print(f"Found {len(grouped)} panoramas to upload.")
 
@@ -87,6 +106,7 @@ def upload_panoramas(base_dir):
     cur.close()
     conn.close()
     print("Upload complete.")
+
 
 if __name__ == "__main__":
     folder = input("Enter the path to the image folder: ").strip('"').strip("'")
