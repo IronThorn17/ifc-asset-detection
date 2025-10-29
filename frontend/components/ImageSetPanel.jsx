@@ -7,6 +7,7 @@ export default function ImageSetPanel({ onLoadSet }) {
     lat: "",
     lon: "",
     alt: "",
+    area: "",
     timestamp: "",
     property_id: "",
     level: "",
@@ -16,7 +17,7 @@ export default function ImageSetPanel({ onLoadSet }) {
   const [note, setNote] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  const canLoad = useMemo(() => FACE_KEYS.every((k) => !!files[k]), [files]);
+  const canLoad = useMemo(() => Object.keys(files).length > 0, [files]);
 
   const handleFile = (face, file) => {
     setFiles((p) => ({ ...p, [face]: file }));
@@ -27,7 +28,7 @@ export default function ImageSetPanel({ onLoadSet }) {
   };
 
   const handleLoad = () => {
-    if (!canLoad) return;
+    if (Object.keys(files).length === 0) return;
     onLoadSet?.({
       top: previews.top,
       bottom: previews.bottom,
@@ -42,18 +43,24 @@ export default function ImageSetPanel({ onLoadSet }) {
   };
 
   const handleUpload = async () => {
-    if (!canLoad) return;
+    if (Object.keys(files).length === 0) return;
     try {
       setUploading(true);
       setNote("Uploading image set...");
 
       const formData = new FormData();
       for (const face of FACE_KEYS) {
-        formData.append(face, files[face]);
+        if (files[face]) {
+          formData.append(face, files[face]);
+        }
       }
 
       // Attach metadata
-      Object.entries(coords).forEach(([k, v]) => formData.append(k, v));
+      Object.entries(coords).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") {
+          formData.append(k, v);
+        }
+      });
 
       const res = await fetch("http://localhost:5000/ingest/pano-set", {
         method: "POST",
@@ -63,6 +70,9 @@ export default function ImageSetPanel({ onLoadSet }) {
       const data = await res.json();
       if (data.ok) {
         setNote(`Successfully uploaded (pano_id=${data.pano_id})`);
+        // Clear files and previews after successful upload
+        setFiles({});
+        setPreviews({});
         // Clear after a few seconds
         setTimeout(() => setNote(""), 3000);
       } else {
@@ -79,9 +89,9 @@ export default function ImageSetPanel({ onLoadSet }) {
     <div style={S.wrap}>
       <div style={S.sectionHeader}>
         <h3 style={S.h3}>
-          <i className="fas fa-images"></i> Image Set
+          <i className="fas fa-images"></i> Single Panorama Upload
         </h3>
-        <p style={S.sectionSubtitle}>Upload six face images for panorama</p>
+        <p style={S.sectionSubtitle}>Upload all sides of one panorama</p>
       </div>
 
       <div style={S.coordsSection}>
@@ -111,18 +121,38 @@ export default function ImageSetPanel({ onLoadSet }) {
             onChange={(v) => setCoords((s) => ({ ...s, alt: v }))}
           />
           <LabeledInput
+            label="Area (m²)"
+            type="number"
+            step="any"
+            value={coords.area}
+            onChange={(v) => setCoords((s) => ({ ...s, area: v }))}
+          />
+          <LabeledInput
             label="Timestamp"
             type="datetime-local"
             value={coords.timestamp}
             onChange={(v) => setCoords((s) => ({ ...s, timestamp: v }))}
+          />
+          <LabeledInput
+            label="Property ID"
+            type="number"
+            value={coords.property_id}
+            onChange={(v) => setCoords((s) => ({ ...s, property_id: v }))}
+          />
+          <LabeledInput
+            label="Level"
+            type="text"
+            value={coords.level}
+            onChange={(v) => setCoords((s) => ({ ...s, level: v }))}
           />
         </div>
       </div>
 
       <div style={S.facesSection}>
         <h4 style={S.h4}>
-          <i className="fas fa-cube"></i> Six Faces
+          <i className="fas fa-cube"></i> Panorama Sides
         </h4>
+        <p style={S.facesSubtitle}>Upload all available sides of the panorama together</p>
         <div style={S.faceList}>
           {FACE_KEYS.map((face) => (
             <div key={face} style={S.faceRow}>
@@ -170,7 +200,7 @@ export default function ImageSetPanel({ onLoadSet }) {
           </>
         ) : (
           <>
-            <i className="fas fa-cloud-upload-alt"></i> Upload to Backend
+            <i className="fas fa-cloud-upload-alt"></i> Upload Panorama
           </>
         )}
       </button>
@@ -183,8 +213,7 @@ export default function ImageSetPanel({ onLoadSet }) {
 
       <div style={S.helpSection}>
         <p style={S.help}>
-          <i className="fas fa-info-circle"></i> Upload all six face images to
-          create a 360° panorama
+          <i className="fas fa-info-circle"></i> Upload all sides of a panorama together to create a 360° view
         </p>
       </div>
     </div>
@@ -208,6 +237,9 @@ const S = {
   wrap: {
     padding: "20px",
     color: "#E2F1E7",
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px",
   },
   sectionHeader: {
     marginBottom: "25px",
@@ -230,6 +262,12 @@ const S = {
     display: "flex",
     alignItems: "center",
     gap: "8px",
+  },
+  facesSubtitle: {
+    margin: "0 0 15px",
+    color: "#90a4ae",
+    fontSize: "0.9rem",
+    fontStyle: "italic",
   },
   coordsSection: {
     marginBottom: "25px",

@@ -96,9 +96,10 @@ const S = {
     margin: 0,
   },
   tableContainer: {
-    overflowX: "auto",
+    overflowX: "hidden", // Changed from "auto" to "hidden" to prevent horizontal scrolling
     borderRadius: "8px",
     boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+    maxHeight: "40vh", // Limit height to prevent vertical scrolling
   },
   table: {
     width: "100%",

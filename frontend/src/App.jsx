@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listDetections, reviewDetection, ingestPanoramaWithFile } from "./api";
 import CubeViewer from "../components/CubeViewer";
 import ImageSetPanel from "../components/ImageSetPanel";
+import BulkUploadPanel from "../components/BulkUploadPanel";
 import PanoJump from "../components/PanoJump";
 import DetectionsTable from "../components/DetectionsTable";
 import ErrorNote from "../components/ErrorNote";
@@ -12,6 +13,7 @@ export default function App() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [view, setView] = useState("review"); // 'upload' | 'review'
 
   const [level, setLevel] = useState("");
   const [propertyId, setPropertyId] = useState("");
@@ -72,6 +74,26 @@ export default function App() {
       <div style={S.header}>
         <h1>IFC Asset Detection</h1>
         <div style={S.headerControls}>
+          <div style={S.navTabs}>
+            <button
+              onClick={() => setView("review")}
+              style={{
+                ...S.navBtn,
+                ...(view === "review" ? S.navActive : {}),
+              }}
+            >
+              <i className="fas fa-check"></i> Review
+            </button>
+            <button
+              onClick={() => setView("upload")}
+              style={{
+                ...S.navBtn,
+                ...(view === "upload" ? S.navActive : {}),
+              }}
+            >
+              <i className="fas fa-upload"></i> Upload
+            </button>
+          </div>
           <PanoJump
             panoId={panoId}
             setPanoId={setPanoId}
@@ -91,38 +113,34 @@ export default function App() {
 
       {/* Main Content */}
       <div style={S.mainContent}>
-        {/* Left side: viewer + detections */}
-        <div style={S.leftPane}>
-          <div style={S.sectionHeader}>
-            <h2>3D Panorama Viewer</h2>
-            <div style={S.panoInfo}>
-              {panoId ? `Pano ID: ${panoId}` : "No panorama loaded"}
+        {view === "review" ? (
+          <div style={S.leftPane}>
+            <div style={S.sectionHeader}>
+              <h2>3D Panorama Viewer</h2>
+              <div style={S.panoInfo}>
+                {panoId ? `Pano ID: ${panoId}` : "No panorama loaded"}
+              </div>
+            </div>
+            <div style={S.viewerWrap}>
+              <CubeViewer faces={viewerFaces} />
+            </div>
+            <div style={S.sectionHeader}>
+              <h2>Detections</h2>
+              <ErrorNote err={err} />
+            </div>
+            <div style={S.tableWrap}>
+              <DetectionsTable rows={rows} onReview={handleReview} />
             </div>
           </div>
-
-          <div style={S.viewerWrap}>
-            <CubeViewer faces={viewerFaces} />
+        ) : (
+          <div style={S.rightPane}>
+            <div style={S.sectionHeader}>
+              <h2>Upload Panoramas</h2>
+            </div>
+            <ImageSetPanel onLoadSet={(facesWithMeta) => setViewerFaces(facesWithMeta)} />
+            <BulkUploadPanel />
           </div>
-
-          <div style={S.sectionHeader}>
-            <h2>Detections</h2>
-            <ErrorNote err={err} />
-          </div>
-
-          <div style={S.tableWrap}>
-            <DetectionsTable rows={rows} onReview={handleReview} />
-          </div>
-        </div>
-
-        {/* Right side: upload / six-face set panel */}
-        <div style={S.rightPane}>
-          <div style={S.sectionHeader}>
-            <h2>Image Set Panel</h2>
-          </div>
-          <ImageSetPanel
-            onLoadSet={(facesWithMeta) => setViewerFaces(facesWithMeta)}
-          />
-        </div>
+        )}
       </div>
     </div>
   );
@@ -136,6 +154,7 @@ const S = {
     background: "linear-gradient(135deg, #1a2a3a 0%, #0d1b2a 100%)",
     color: "#e0e0e0",
     fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+    overflow: "hidden", // Prevent scrolling on the main app
   },
   header: {
     padding: "20px 30px",
@@ -150,6 +169,28 @@ const S = {
     display: "flex",
     alignItems: "center",
     gap: "15px",
+  },
+  navTabs: {
+    display: "flex",
+    gap: "8px",
+    marginRight: "10px",
+  },
+  navBtn: {
+    backgroundColor: "transparent",
+    color: "#90a4ae",
+    border: "1px solid #2a4d69",
+    padding: "6px 10px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontWeight: "600",
+  },
+  navActive: {
+    backgroundColor: "#4a9bff",
+    color: "white",
+    borderColor: "#4a9bff",
   },
   refreshBtn: {
     backgroundColor: "#4a9bff",
@@ -167,12 +208,12 @@ const S = {
   mainContent: {
     display: "flex",
     flex: 1,
-    overflow: "hidden",
+    overflow: "hidden", // Prevent scrolling on main content
   },
   leftPane: {
-    flex: 2,
+    flex: 3, // Increase from 2 to 3 to give more space to the viewer
     padding: "20px",
-    overflow: "auto",
+    overflow: "hidden", // Prevent scrolling on left pane
     display: "flex",
     flexDirection: "column",
     gap: "20px",
@@ -181,7 +222,7 @@ const S = {
     flex: 1,
     borderLeft: "1px solid #2a4d69",
     backgroundColor: "rgba(26, 42, 58, 0.7)",
-    overflow: "auto",
+    overflow: "auto", // Allow scrolling in the upload section
     padding: "20px",
   },
   sectionHeader: {
@@ -192,7 +233,7 @@ const S = {
   },
   viewerWrap: {
     flex: 1,
-    minHeight: "60vh",
+    minHeight: "70vh", // Increase from 60vh to 70vh for a larger viewer
     border: "1px solid #2a4d69",
     borderRadius: "12px",
     overflow: "hidden",
@@ -204,6 +245,8 @@ const S = {
     borderRadius: "12px",
     padding: "15px",
     boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+    overflow: "hidden", // Prevent scrolling on table
+    maxHeight: "30vh", // Limit table height to ensure viewer gets more space
   },
   panoInfo: {
     fontSize: "14px",

@@ -69,6 +69,8 @@ export default function CubeViewer({ faces }) {
         return new THREE.MeshBasicMaterial({
           map: tex || null,
           side: THREE.BackSide,
+          // If no texture, use black color
+          color: tex ? 0xffffff : 0x000000,
         });
       });
 

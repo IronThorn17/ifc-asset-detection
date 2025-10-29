@@ -34,13 +34,43 @@ app.post(
   ]),
   async (req, res) => {
     try {
-      const { property_id, level, lat, lon, alt, timestamp } = req.body || {};
-      const toNum = (v) => (v ? Number(v) : null);
+      const { property_id, level, lat, lon, alt, timestamp, area } = req.body || {};
+      const toNum = (v) => {
+        if (v === undefined || v === null || v === "") return null;
+        const num = Number(v);
+        return isNaN(num) ? null : num;
+      };
 
       const faces = {};
       const getFile = (key) => req.files?.[key]?.[0] ?? null;
       for (const k of ["top", "bottom", "front", "back", "left", "right"]) {
         if (getFile(k)) faces[k] = true;
+      }
+
+      const facesJson = {
+        faces,
+        meta: {
+          lat: toNum(lat),
+          lon: toNum(lon),
+          alt: toNum(alt),
+          area: toNum(area),
+          timestamp: timestamp ? new Date(timestamp).toISOString() : null,
+          property_id: property_id ? Number(property_id) : null,
+          level: level || null,
+        },
+      };
+
+      // Check if at least one file is present
+      const uploadedFiles = [];
+      for (const k of ["top", "bottom", "front", "back", "left", "right"]) {
+        if (getFile(k)) uploadedFiles.push(k);
+      }
+      
+      if (uploadedFiles.length === 0) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: "At least one face image is required" 
+        });
       }
 
       const q = `
@@ -59,7 +89,7 @@ app.post(
         toNum(lon),
         toNum(alt),
         timestamp ? new Date(timestamp) : new Date(),
-        faces,
+        facesJson,
         getFile("top")?.buffer ?? null,
         getFile("bottom")?.buffer ?? null,
         getFile("front")?.buffer ?? null,
@@ -73,6 +103,7 @@ app.post(
       const { rows } = await pool.query(q, params);
       res.json({ ok: true, pano_id: rows[0].id });
     } catch (e) {
+      console.error("Upload error:", e);
       res.status(400).json({ ok: false, error: e.message });
     }
   }
