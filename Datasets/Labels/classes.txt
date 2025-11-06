@@ -27,3 +27,6 @@ ifcAudioVisualAppliance
 ifcElectricalOutlet
 ifcSanitaryTerminal
 ifcEquipmentElement
+ifcFurnishingElement
+ifcDuctSegment
+ifcController
