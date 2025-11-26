@@ -62,7 +62,8 @@ export default function ImageSetPanel({ onLoadSet }) {
         }
       });
 
-      const res = await fetch("http://localhost:5000/ingest/pano-set", {
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+      const res = await fetch(`${API_URL}/ingest/pano-set`, {
         method: "POST",
         body: formData,
       });
@@ -363,6 +364,10 @@ const S = {
     color: "#fff",
     cursor: "pointer",
     boxShadow: "0 4px 12px rgba(74, 155, 255, 0.3)",
+  },
+  btnDisabled: {
+    opacity: 0.6,
+    cursor: "not-allowed",
   },
   note: {
     minHeight: "18px",

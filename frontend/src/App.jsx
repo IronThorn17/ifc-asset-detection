@@ -13,10 +13,6 @@ export default function App() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
-  const [level, setLevel] = useState("");
-  const [propertyId, setPropertyId] = useState("");
-  const [lat, setLat] = useState("");
-  const [lon, setLon] = useState("");
   const [view, setView] = useState("review"); // 'review' | 'upload'
   const [viewerFaces, setViewerFaces] = useState(null);
 
@@ -37,7 +33,8 @@ export default function App() {
 
   async function loadFaces(panoId) {
     if (!panoId) return null;
-    const base = `http://localhost:5000/pano/${panoId}/image`;
+    const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+    const base = `${API_URL}/pano/${panoId}/image`;
     return {
       top: `${base}/top`,
       bottom: `${base}/bottom`,
@@ -49,12 +46,12 @@ export default function App() {
   }
 
   useEffect(() => {
-    load();
-
-    (async () => {
+    async function loadData() {
+      await load(panoId);
       const faces = await loadFaces(panoId);
       setViewerFaces(faces);
-    })();
+    }
+    loadData();
   }, [panoId]);
 
   async function handleReview(id, action) {

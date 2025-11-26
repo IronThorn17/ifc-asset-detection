@@ -24,8 +24,12 @@ def clear_database():
 
         # Disable foreign key checks temporarily
         cur.execute("SET session_replication_role = 'replica';")
-        
+
+        # Validate table names to prevent SQL injection
+        allowed_tables = {"detections", "reviews", "assets", "panoramas", "properties"}
         for table in TABLES:
+            if table not in allowed_tables:
+                raise ValueError(f"Invalid table name: {table}")
             cur.execute(f'TRUNCATE TABLE {table} RESTART IDENTITY CASCADE;')
             print(f"Cleared {table}")
 

@@ -37,6 +37,10 @@ def latest_pano(conn):
 
 def load_face_bytes(conn, pano_id, face_column):
     """Load one face of the panorama."""
+    # Validate face_column is one of the allowed values to prevent SQL injection
+    if face_column not in PANO_FACES.values():
+        raise ValueError(f"Invalid face_column: {face_column}")
+
     with conn.cursor() as cur:
         cur.execute(f"SELECT {face_column} FROM panoramas WHERE id = %s", (pano_id,))
         row = cur.fetchone()

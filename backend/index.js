@@ -226,17 +226,22 @@ app.post("/review", async (req, res) => {
 // });
 
 app.get("/pano/:id/image/:face", async (req, res) => {
-  const { id, face } = req.params;
-  if (!["top", "bottom", "front", "back", "left", "right"].includes(face))
-    return res.status(400).send("Invalid face");
+  try {
+    const { id, face } = req.params;
+    if (!["top", "bottom", "front", "back", "left", "right"].includes(face))
+      return res.status(400).send("Invalid face");
 
-  const q = `SELECT img_${face} AS img, image_content_type FROM panoramas WHERE id=$1`;
-  const { rows } = await pool.query(q, [id]);
-  if (!rows.length || !rows[0].img) return res.status(404).send("Not found");
+    const q = `SELECT img_${face} AS img, image_content_type FROM panoramas WHERE id=$1`;
+    const { rows } = await pool.query(q, [id]);
+    if (!rows.length || !rows[0].img) return res.status(404).send("Not found");
 
-  res.set("Content-Type", rows[0].image_content_type || "image/jpeg");
-  res.send(rows[0].img);
+    res.set("Content-Type", rows[0].image_content_type || "image/jpeg");
+    res.send(rows[0].img);
+  } catch (e) {
+    console.error("Error fetching panorama image:", e);
+    res.status(500).send("Server error");
+  }
 });
 
-const port = process.env.API_PORT || 5000;
+const port = process.env.PORT || process.env.API_PORT || 5000;
 app.listen(port, () => console.log(`Backend on :${port}`));
