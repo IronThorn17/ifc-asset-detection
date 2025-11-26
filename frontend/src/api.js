@@ -21,6 +21,28 @@ export async function reviewDetection({
   return res.json();
 }
 
+export async function convertDetectionsToAssets(panoId) {
+  const res = await fetch(`${API}/convert-to-assets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pano_id: panoId }),
+  });
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "Conversion failed");
+    throw new Error(errorText);
+  }
+  return res.json();
+}
+
+export async function listAssets(propertyId) {
+  const url = propertyId 
+    ? `${API}/assets?property_id=${propertyId}`
+    : `${API}/assets`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to load assets");
+  return res.json();
+}
+
 // Upload image bytes directly to DB and create panorama row
 export async function ingestPanoramaWithFile({
   file,

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-export default function CubeViewer({ faces }) {
+export default function CubeViewer({ faces, detections = [] }) {
   const mountRef = useRef(null);
 
   useEffect(() => {
@@ -29,6 +29,8 @@ export default function CubeViewer({ faces }) {
 
     let skybox = null;
     let textures = {};
+    let detectionBoxes = [];
+    let detectionLabels = [];
 
     // --- Build or rebuild the cubemap ---
     const buildSkybox = (f) => {
@@ -50,6 +52,19 @@ export default function CubeViewer({ faces }) {
         Object.values(textures).forEach((t) => t?.dispose());
         textures = {};
       }
+
+      // Remove previous detection boxes and labels
+      detectionBoxes.forEach(box => {
+        box.geometry.dispose();
+        box.material.dispose();
+        scene.remove(box);
+      });
+      detectionBoxes = [];
+
+      detectionLabels.forEach(label => {
+        scene.remove(label);
+      });
+      detectionLabels = [];
 
       const materials = order.map(([key, url]) => {
         let tex = null;
@@ -79,6 +94,197 @@ export default function CubeViewer({ faces }) {
         materials
       );
       scene.add(skybox);
+
+      // Add detection boxes
+      if (detections && detections.length > 0) {
+        addDetectionBoxes(f, detections);
+      }
+    };
+
+    // --- Add detection boxes to the scene ---
+    const addDetectionBoxes = (facesObj, detectionsList) => {
+      // Remove existing detection boxes and labels
+      detectionBoxes.forEach(box => {
+        box.geometry.dispose();
+        box.material.dispose();
+        scene.remove(box);
+      });
+      detectionBoxes = [];
+
+      detectionLabels.forEach(label => {
+        scene.remove(label);
+      });
+      detectionLabels = [];
+
+      // Group detections by face
+      const detectionsByFace = {};
+      detectionsList.forEach(detection => {
+        if (detection.face_id) {
+          if (!detectionsByFace[detection.face_id]) {
+            detectionsByFace[detection.face_id] = [];
+          }
+          detectionsByFace[detection.face_id].push(detection);
+        }
+      });
+
+      // Create boxes for each face
+      Object.keys(detectionsByFace).forEach(faceId => {
+        const faceDetections = detectionsByFace[faceId];
+        faceDetections.forEach(detection => {
+          if (Array.isArray(detection.bbox_xywh) && detection.bbox_xywh.length >= 4) {
+            const [x, y, width, height] = detection.bbox_xywh;
+            const { box, label } = createDetectionBox(faceId, x, y, width, height, detection.ifc_class, detection.confidence, detection.review_action);
+            if (box) {
+              detectionBoxes.push(box);
+              scene.add(box);
+            }
+            if (label) {
+              detectionLabels.push(label);
+              scene.add(label);
+            }
+          }
+        });
+      });
+    };
+
+    // --- Create a single detection box and label ---
+    const createDetectionBox = (faceId, x, y, width, height, className, confidence, reviewAction) => {
+      // Convert normalized coordinates to cube face coordinates
+      // Cube size is 1000, so we need to map [0,1] to [-500,500]
+      const cubeSize = 1000;
+      const halfSize = cubeSize / 2;
+      
+      // Convert normalized coords to cube coords
+      const left = (x - 0.5) * cubeSize;
+      const top = -(y - 0.5) * cubeSize; // Flip Y axis
+      const boxWidth = width * cubeSize;
+      const boxHeight = height * cubeSize;
+      
+      // Create box geometry
+      const boxGeometry = new THREE.BoxGeometry(boxWidth, boxHeight, 20);
+      
+      // Set material based on review status
+      let boxMaterial;
+      let labelColor;
+      if (reviewAction === 'confirm') {
+        // Confirmed detection - green color
+        boxMaterial = new THREE.MeshBasicMaterial({
+          color: 0x00ff00,
+          wireframe: false,
+          transparent: true,
+          opacity: 0.4,
+          side: THREE.DoubleSide
+        });
+        labelColor = '#00ff00';
+      } else if (reviewAction === 'reject') {
+        // Rejected detection - red color
+        boxMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff0000,
+          wireframe: false,
+          transparent: true,
+          opacity: 0.3,
+          side: THREE.DoubleSide
+        });
+        labelColor = '#ff0000';
+      } else {
+        // Unreviewed detection - class color
+        const classColor = getColorForClass(className);
+        boxMaterial = new THREE.MeshBasicMaterial({
+          color: classColor,
+          wireframe: false,
+          transparent: true,
+          opacity: 0.35,
+          side: THREE.DoubleSide
+        });
+        labelColor = `#${classColor.toString(16).padStart(6, '0')}`;
+      }
+      
+      const box = new THREE.Mesh(boxGeometry, boxMaterial);
+      
+      // Position based on face
+      let position;
+      switch (faceId) {
+        case 'front':
+          position = { x: left, y: top, z: -halfSize + 10 };
+          break;
+        case 'back':
+          position = { x: -left, y: top, z: halfSize - 10 };
+          break;
+        case 'left':
+          position = { x: -halfSize + 10, y: top, z: -left };
+          break;
+        case 'right':
+          position = { x: halfSize - 10, y: top, z: left };
+          break;
+        case 'top':
+          position = { x: left, y: halfSize - 10, z: top };
+          break;
+        case 'bottom':
+          position = { x: left, y: -halfSize + 10, z: -top };
+          break;
+        default:
+          boxGeometry.dispose();
+          boxMaterial.dispose();
+          return { box: null, label: null };
+      }
+      
+      box.position.set(position.x, position.y, position.z);
+      
+      // Create label
+      const label = createLabel(className, position, labelColor, confidence);
+      
+      return { box, label };
+    };
+
+    // --- Create a label for the detection ---
+    const createLabel = (text, position, color, confidence) => {
+      // Create a canvas for the label
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.width = 256;
+      canvas.height = 128;
+      
+      // Draw text on canvas
+      context.fillStyle = color;
+      context.font = '24px Arial';
+      context.textAlign = 'center';
+      context.fillText(text, canvas.width / 2, 40);
+      
+      context.font = '16px Arial';
+      context.fillText(`Conf: ${(confidence * 100).toFixed(1)}%`, canvas.width / 2, 80);
+      
+      // Create texture from canvas
+      const texture = new THREE.CanvasTexture(canvas);
+      
+      // Create sprite material
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0.9
+      });
+      
+      // Create sprite
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(100, 50, 1);
+      sprite.position.set(position.x, position.y + 60, position.z);
+      
+      return sprite;
+    };
+
+    // --- Get color based on class ---
+    const getColorForClass = (className) => {
+      const classColors = {
+        'ifcDoor': 0xff0000,        // Red
+        'ifcWindow': 0x00ff00,      // Green
+        'ifcWall': 0x0000ff,        // Blue
+        'ifcFurniture': 0xffff00,   // Yellow
+        'ifcLightFixture': 0xff00ff, // Magenta
+        'ifcComputer': 0x00ffff,    // Cyan
+        'ifcSign': 0xffa500,        // Orange
+        'default': 0xffffff         // White
+      };
+      
+      return classColors[className] || classColors['default'];
     };
 
     // --- Initial build ---
@@ -151,9 +357,11 @@ export default function CubeViewer({ faces }) {
 
     // --- Watch for face changes ---
     let lastFaces = faces;
+    let lastDetections = detections;
     const swapCheck = setInterval(() => {
-      if (lastFaces !== faces && faces) {
+      if ((lastFaces !== faces && faces) || (lastDetections !== detections && detections)) {
         lastFaces = faces;
+        lastDetections = detections;
         buildSkybox(faces);
       }
     }, 300);
@@ -174,10 +382,30 @@ export default function CubeViewer({ faces }) {
         skybox.geometry.dispose();
         skybox.material.forEach((m) => m.dispose());
       }
+      detectionBoxes.forEach(box => {
+        box.geometry.dispose();
+        box.material.dispose();
+      });
+      detectionLabels.forEach(label => {
+        // Labels are sprites, no need to dispose geometry/material
+        scene.remove(label);
+      });
       if (renderer.domElement.parentNode === mount)
         mount.removeChild(renderer.domElement);
     };
-  }, [faces]);
+  }, [faces, detections]);
+
+  // Count detections by review status
+  const detectionStats = detections.reduce((stats, detection) => {
+    if (detection.review_action === 'confirm') {
+      stats.confirmed++;
+    } else if (detection.review_action === 'reject') {
+      stats.rejected++;
+    } else {
+      stats.unreviewed++;
+    }
+    return stats;
+  }, { confirmed: 0, rejected: 0, unreviewed: 0 });
 
   return (
     <div ref={mountRef} style={S.root}>
@@ -190,6 +418,24 @@ export default function CubeViewer({ faces }) {
             <i className="fas fa-search-plus"></i> Scroll to zoom
           </span>
         </div>
+        {detections && detections.length > 0 && (
+          <div style={S.detectionsInfo}>
+            <span style={S.detectionsCount}>
+              <i className="fas fa-vector-square"></i> {detections.length} detections
+            </span>
+            <div style={S.detectionStatus}>
+              <span style={{...S.statusItem, color: '#66bb6a'}}>
+                <i className="fas fa-check-circle"></i> {detectionStats.confirmed} confirmed
+              </span>
+              <span style={{...S.statusItem, color: '#ef5350'}}>
+                <i className="fas fa-times-circle"></i> {detectionStats.rejected} rejected
+              </span>
+              <span style={{...S.statusItem, color: '#4a9bff'}}>
+                <i className="fas fa-question-circle"></i> {detectionStats.unreviewed} pending
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -219,6 +465,27 @@ const S = {
     gap: "15px",
     color: "#bbdefb",
     fontSize: "13px",
+  },
+  detectionsInfo: {
+    marginTop: "8px",
+    paddingTop: "8px",
+    borderTop: "1px solid rgba(187, 222, 251, 0.3)",
+  },
+  detectionsCount: {
+    color: "#4a9bff",
+    fontSize: "13px",
+    fontWeight: "500",
+  },
+  detectionStatus: {
+    display: "flex",
+    gap: "10px",
+    marginTop: "5px",
+    fontSize: "12px",
+  },
+  statusItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
   },
   controlItem: {
     display: "flex",

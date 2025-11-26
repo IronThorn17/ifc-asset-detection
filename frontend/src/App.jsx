@@ -1,20 +1,23 @@
 import { useEffect, useState } from "react";
-import { listDetections, reviewDetection } from "./api";
+import { listDetections, reviewDetection, convertDetectionsToAssets, listAssets } from "./api";
 import CubeViewer from "../components/CubeViewer";
 import ImageSetPanel from "../components/ImageSetPanel";
 import BulkUploadPanel from "../components/BulkUploadPanel";
 import PanoJump from "../components/PanoJump";
 import DetectionsTable from "../components/DetectionsTable";
+import AssetsTable from "../components/AssetsTable";
 import ErrorNote from "../components/ErrorNote";
 import Spinner from "../components/Spinner";
 
 export default function App() {
   const [panoId, setPanoId] = useState(1);
   const [rows, setRows] = useState([]);
+  const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
-  const [view, setView] = useState("review"); // 'review' | 'upload'
+  const [view, setView] = useState("review"); // 'review' | 'upload' | 'assets'
   const [viewerFaces, setViewerFaces] = useState(null);
+  const [conversionLoading, setConversionLoading] = useState(false);
 
   async function load(current = panoId) {
     if (!current) return;
@@ -26,6 +29,26 @@ export default function App() {
     } catch (e) {
       setErr(e.message || "Failed to load");
       setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadAssets() {
+    try {
+      setLoading(true);
+      // Get property_id from current panorama
+      if (panoId) {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/pano/${panoId}`);
+        if (response.ok) {
+          const panoData = await response.json();
+          const assetsData = await listAssets(panoData.property_id);
+          setAssets(assetsData);
+        }
+      }
+    } catch (e) {
+      setErr(e.message || "Failed to load assets");
+      setAssets([]);
     } finally {
       setLoading(false);
     }
@@ -47,12 +70,16 @@ export default function App() {
 
   useEffect(() => {
     async function loadData() {
-      await load(panoId);
-      const faces = await loadFaces(panoId);
-      setViewerFaces(faces);
+      if (view === "assets") {
+        await loadAssets();
+      } else {
+        await load(panoId);
+        const faces = await loadFaces(panoId);
+        setViewerFaces(faces);
+      }
     }
     loadData();
-  }, [panoId]);
+  }, [panoId, view]);
 
   async function handleReview(id, action) {
     try {
@@ -60,6 +87,22 @@ export default function App() {
       await load();
     } catch (e) {
       alert(e.message || "Review failed");
+    }
+  }
+
+  async function handleConvertToAssets() {
+    if (!panoId) return;
+    
+    try {
+      setConversionLoading(true);
+      const result = await convertDetectionsToAssets(panoId);
+      alert(result.message || "Successfully converted detections to assets!");
+      // Reload to show updated data
+      await load();
+    } catch (e) {
+      alert(e.message || "Failed to convert detections to assets");
+    } finally {
+      setConversionLoading(false);
     }
   }
 
@@ -88,21 +131,44 @@ export default function App() {
             >
               <i className="fas fa-upload"></i> Upload
             </button>
+            <button
+              onClick={() => setView("assets")}
+              style={{
+                ...S.navBtn,
+                ...(view === "assets" ? S.navActive : {}),
+              }}
+            >
+              <i className="fas fa-cube"></i> Assets
+            </button>
           </div>
-          <PanoJump
-            panoId={panoId}
-            setPanoId={setPanoId}
-            onLoad={() => load()}
-            loading={loading}
-          />
-          <button
-            onClick={() => load()}
-            disabled={!panoId || loading}
-            style={S.refreshBtn}
-          >
-            <i className="fas fa-sync-alt"></i> Refresh
-          </button>
-          <Spinner show={loading} />
+          {view !== "assets" && (
+            <>
+              <PanoJump
+                panoId={panoId}
+                setPanoId={setPanoId}
+                onLoad={() => load()}
+                loading={loading}
+              />
+              <button
+                onClick={() => load()}
+                disabled={!panoId || loading}
+                style={S.refreshBtn}
+              >
+                <i className="fas fa-sync-alt"></i> Refresh
+              </button>
+              {view === "review" && (
+                <button
+                  onClick={handleConvertToAssets}
+                  disabled={!panoId || conversionLoading || loading}
+                  style={S.convertBtn}
+                >
+                  <i className="fas fa-cube"></i> 
+                  {conversionLoading ? "Converting..." : "Convert to Assets"}
+                </button>
+              )}
+            </>
+          )}
+          <Spinner show={loading || conversionLoading} />
         </div>
       </div>
 
@@ -119,7 +185,7 @@ export default function App() {
                   </div>
                 </div>
                 <div style={S.viewerSquare}>
-                  <CubeViewer faces={viewerFaces} />
+                  <CubeViewer faces={viewerFaces} detections={rows} />
                 </div>
               </div>
             </div>
@@ -131,6 +197,46 @@ export default function App() {
                 <ErrorNote err={err} />
                 <div style={S.scrollArea}>
                   <DetectionsTable rows={rows} onReview={handleReview} />
+                </div>
+              </div>
+            </div>
+          </>
+        ) : view === "assets" ? (
+          <>
+            <div style={S.primaryColumn}>
+              <div style={{ ...S.card, ...S.flexCard }}>
+                <div style={S.sectionHeader}>
+                  <h2>IFC Assets</h2>
+                  <div style={S.panoInfo}>
+                    {panoId ? `Property ID: ${panoId}` : "No property selected"}
+                  </div>
+                </div>
+                <ErrorNote err={err} />
+                <div style={S.scrollArea}>
+                  <AssetsTable assets={assets} />
+                </div>
+              </div>
+            </div>
+            <div style={S.secondaryColumn}>
+              <div style={{ ...S.card, ...S.flexCard }}>
+                <div style={S.sectionHeader}>
+                  <h2>Asset Information</h2>
+                </div>
+                <div style={S.infoContent}>
+                  <p>Assets are created from confirmed detections.</p>
+                  <p>Each asset represents an IFC element identified in the panoramas.</p>
+                  <div style={S.assetStats}>
+                    <div style={S.statItem}>
+                      <span style={S.statLabel}>Total Assets:</span>
+                      <span style={S.statValue}>{assets.length}</span>
+                    </div>
+                    <div style={S.statItem}>
+                      <span style={S.statLabel}>Confirmed:</span>
+                      <span style={S.statValue}>
+                        {assets.filter(a => a.status === 'confirmed').length}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -225,6 +331,19 @@ const S = {
     fontWeight: "600",
     transition: "all 0.3s ease",
   },
+  convertBtn: {
+    backgroundColor: "#66bb6a",
+    color: "white",
+    border: "none",
+    padding: "8px 16px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    fontWeight: "600",
+    transition: "all 0.3s ease",
+  },
   mainContent: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
@@ -283,6 +402,34 @@ const S = {
     overflowY: "auto",
     paddingRight: "6px",
     minHeight: 0,
+  },
+  infoContent: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    gap: "15px",
+  },
+  assetStats: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    marginTop: "10px",
+    padding: "15px",
+    backgroundColor: "rgba(30, 58, 95, 0.3)",
+    borderRadius: "8px",
+  },
+  statItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  statLabel: {
+    fontWeight: "500",
+    color: "#bbdefb",
+  },
+  statValue: {
+    fontWeight: "600",
+    color: "#4a9bff",
   },
   panoInfo: {
     fontSize: "14px",

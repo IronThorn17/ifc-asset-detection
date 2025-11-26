@@ -1,12 +1,20 @@
 import os, time, psycopg, cv2, json
-from ultralytics import YOLO
 import numpy as np
+from ultralytics import YOLO
 
 DB_URL = os.getenv("DB_URL", "postgres://postgres:postgres@db:5432/ifc_assets")
 POLL_SECS = float(os.getenv("POLL_SECS", "5"))
 MODEL_PATH = "model/best.pt"
 MODEL_VERSION = "best.pt"
 model = YOLO(MODEL_PATH)
+
+# Load IFC class mapping
+IFC_CLASS_MAPPING = {}
+try:
+    with open('ifc_class_mapping.json', 'r') as f:
+        IFC_CLASS_MAPPING = json.load(f)
+except Exception as e:
+    print(f"Warning: Could not load IFC class mapping: {e}")
 
 # -------------------------------------------
 # DB HELPERS
@@ -70,6 +78,11 @@ def save_detection_row(conn, pano_id, face_id, box):
     h = float(y2 - y1)
     bbox_xywh = [float(x1), float(y1), w, h]
 
+    # Get enhanced class information
+    class_info = IFC_CLASS_MAPPING.get(label, {})
+    category = class_info.get("category", "Unknown")
+    description = class_info.get("description", "")
+    
     det = {
         "pano_id": pano_id,
         "model_version": MODEL_VERSION,
@@ -79,7 +92,10 @@ def save_detection_row(conn, pano_id, face_id, box):
         "face_id": face_id,
         "bbox_xywh": bbox_xywh,
         "mask_uri": None,
-        "sphere_coords_json": json.dumps({})
+        "sphere_coords_json": json.dumps({
+            "category": category,
+            "description": description
+        })
     }
 
     with conn.cursor() as cur:
@@ -119,6 +135,7 @@ def process_pano(conn, pano_id):
 
 def main():
     print("ML detection service running...")
+    print(f"Loaded {len(IFC_CLASS_MAPPING)} IFC class mappings")
     last_seen = None
 
     with psycopg.connect(DB_URL) as conn:

@@ -167,9 +167,39 @@ app.get("/detections", async (req, res) => {
   const { pano_id } = req.query;
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM detections WHERE pano_id = $1 ORDER BY created_at DESC`,
+      `SELECT d.*, 
+              r.action as review_action,
+              r.created_at as review_created_at
+       FROM detections d
+       LEFT JOIN reviews r ON d.id = r.detection_id
+       WHERE d.pano_id = $1 
+       ORDER BY d.created_at DESC`,
       [pano_id]
     );
+    res.json(rows);
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+app.get("/assets", async (req, res) => {
+  const { property_id } = req.query;
+  try {
+    let query = `
+      SELECT a.*, p.name as property_name
+      FROM assets a
+      LEFT JOIN properties p ON a.property_id = p.id
+    `;
+    const params = [];
+    
+    if (property_id) {
+      query += " WHERE a.property_id = $1";
+      params.push(property_id);
+    }
+    
+    query += " ORDER BY a.created_at DESC";
+    
+    const { rows } = await pool.query(query, params);
     res.json(rows);
   } catch (e) {
     res.status(400).json({ ok: false, error: e.message });
@@ -190,40 +220,95 @@ app.post("/review", async (req, res) => {
   }
 });
 
-// app.get("/pano/:id/image", async (req, res) => {
-//   try {
-//     const { rows } = await pool.query(
-//       "SELECT image, image_content_type FROM panoramas WHERE id = $1",
-//       [req.params.id]
-//     );
-//     if (rows.length === 0 || !rows[0].image)
-//       return res.status(404).send("Not found");
-//     if (rows[0].image_content_type)
-//       res.set("Content-Type", rows[0].image_content_type);
-//     res.send(rows[0].image);
-//   } catch {
-//     res.status(500).send("Server error");
-//   }
-// });
+app.post("/convert-to-assets", async (req, res) => {
+  const { pano_id } = req.body || {};
+  try {
+    // Get all confirmed detections for this panorama
+    const { rows: detections } = await pool.query(
+      `SELECT d.*, r.action as review_action
+       FROM detections d
+       LEFT JOIN reviews r ON d.id = r.detection_id
+       WHERE d.pano_id = $1 AND r.action = 'confirm'
+       ORDER BY d.created_at DESC`,
+      [pano_id]
+    );
 
-// stream the original image stored in panoramas.image
-// app.get("/pano/:id/image", async (req, res) => {
-//   try {
-//     const { rows } = await pool.query(
-//       "SELECT image, image_content_type FROM panoramas WHERE id = $1",
-//       [req.params.id]
-//     );
-//     if (rows.length === 0 || !rows[0].image)
-//       return res.status(404).send("Not found");
-//     if (rows[0].image_content_type)
-//       res.set("Content-Type", rows[0].image_content_type);
-//     // (optional) long cache since content is immutable post-ingest
-//     res.set("Cache-Control", "public, max-age=31536000, immutable");
-//     res.send(rows[0].image);
-//   } catch (e) {
-//     res.status(500).send("Server error");
-//   }
-// });
+    if (detections.length === 0) {
+      return res.status(400).json({ ok: false, error: "No confirmed detections found for this panorama" });
+    }
+
+    // Get the property_id from the panorama
+    const { rows: panoramaRows } = await pool.query(
+      "SELECT id, property_id, lat, lon, alt FROM panoramas WHERE id = $1",
+      [pano_id]
+    );
+
+    if (panoramaRows.length === 0) {
+      return res.status(400).json({ ok: false, error: "Panorama not found" });
+    }
+
+    const { property_id, lat, lon, alt } = panoramaRows[0];
+
+    // Convert each confirmed detection to an asset
+    const assetIds = [];
+    for (const detection of detections) {
+      // Create a basic point geometry from panorama coordinates
+      let geometry = null;
+      if (lat !== null && lon !== null) {
+        geometry = {
+          type: "Point",
+          coordinates: [lon, lat, alt || 0]
+        };
+      }
+
+      const { rows: assetRows } = await pool.query(
+        `INSERT INTO assets (
+          property_id, ifc_class, status, source_detection_ids, attributes_json, geometry
+        ) VALUES (
+          $1, $2, 'confirmed', ARRAY[$3], $4, ST_GeomFromGeoJSON($5)
+        ) RETURNING id`,
+        [
+          property_id,
+          detection.ifc_class,
+          detection.id,
+          JSON.stringify({
+            confidence: detection.confidence,
+            face_id: detection.face_id,
+            bbox_xywh: detection.bbox_xywh,
+            model_version: detection.model_version
+          }),
+          geometry ? JSON.stringify(geometry) : null
+        ]
+      );
+      assetIds.push(assetRows[0].id);
+    }
+
+    res.json({ 
+      ok: true, 
+      message: `Converted ${detections.length} detections to assets`,
+      asset_ids: assetIds
+    });
+  } catch (e) {
+    console.error("Convert to assets error:", e);
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+app.get("/pano/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      "SELECT * FROM panoramas WHERE id = $1",
+      [id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Panorama not found" });
+    }
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
 
 app.get("/pano/:id/image/:face", async (req, res) => {
   try {
