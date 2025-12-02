@@ -1,4 +1,59 @@
-export default function DetectionsTable({ rows, onReview }) {
+import { useState } from 'react';
+import { reviewDetection } from "../src/api";
+
+export default function DetectionsTable({ rows: initialRows, onReview, onUpdate }) {
+  const [rows, setRows] = useState(initialRows || []);
+  const [loadingId, setLoadingId] = useState(null);
+  const [error, setError] = useState(null);
+
+  const handleReview = async (detectionId, action) => {
+    try {
+      setLoadingId(detectionId);
+      setError(null);
+      
+      // Optimistic update
+      const updatedRows = rows.map(row => 
+        row.id === detectionId 
+          ? { ...row, review_action: action, isUpdating: true } 
+          : row
+      );
+      setRows(updatedRows);
+      
+      // Call API
+      await reviewDetection({ 
+        detection_id: detectionId, 
+        action,
+        note: `Manually ${action}ed by user`
+      });
+      
+      // Update parent component
+      if (onReview) onReview(detectionId, action);
+      if (onUpdate) onUpdate(updatedRows);
+      
+      // Remove loading state
+      setRows(prevRows => 
+        prevRows.map(row => 
+          row.id === detectionId 
+            ? { ...row, review_action: action, isUpdating: false } 
+            : row
+        )
+      );
+    } catch (err) {
+      console.error('Review failed:', err);
+      setError(`Failed to ${action} detection: ${err.message}`);
+      
+      // Revert optimistic update on error
+      setRows(prevRows => 
+        prevRows.map(row => 
+          row.id === detectionId 
+            ? { ...row, isUpdating: false } 
+            : row
+        )
+      );
+    } finally {
+      setLoadingId(null);
+    }
+  };
   if (!rows?.length) return (
     <div style={S.emptyContainer}>
       <div style={S.emptyIcon}>
@@ -19,6 +74,7 @@ export default function DetectionsTable({ rows, onReview }) {
             <th style={S.th}>Confidence</th>
             <th style={S.th}>Face</th>
             <th style={S.th}>Position</th>
+            <th style={S.th}>Status</th>
             <th style={S.th}>Actions</th>
           </tr>
         </thead>
@@ -51,17 +107,33 @@ export default function DetectionsTable({ rows, onReview }) {
                 ) : '—'}
               </td>
               <td style={S.td}>
-                <div style={S.actions}>
+                <StatusBadge status={r.review_action} />
+              </td>
+              <td style={S.td}>
+                <div style={S.actionsContainer}>
                   <button 
-                    onClick={() => onReview(r.id, "confirm")} 
-                    style={{...S.actionBtn, ...S.confirmBtn}}
-                    title="Confirm detection"
+                    style={{
+                      ...S.actionButton,
+                      ...(r.review_action === 'confirm' ? S.activeButton : {}),
+                      opacity: loadingId === r.id && r.review_action !== 'confirm' ? 0.5 : 1,
+                      cursor: loadingId === r.id ? 'wait' : 'pointer'
+                    }}
+                    onClick={() => handleReview(r.id, 'confirm')}
+                    disabled={loadingId === r.id}
+                    title="Accept detection"
                   >
                     <i className="fas fa-check"></i>
                   </button>
                   <button 
-                    onClick={() => onReview(r.id, "reject")} 
-                    style={{...S.actionBtn, ...S.rejectBtn}}
+                    style={{
+                      ...S.actionButton,
+                      ...S.rejectButton,
+                      ...(r.review_action === 'reject' ? S.activeRejectButton : {}),
+                      opacity: loadingId === r.id && r.review_action !== 'reject' ? 0.5 : 1,
+                      cursor: loadingId === r.id ? 'wait' : 'pointer'
+                    }}
+                    onClick={() => handleReview(r.id, 'reject')}
+                    disabled={loadingId === r.id}
                     title="Reject detection"
                   >
                     <i className="fas fa-times"></i>
@@ -75,6 +147,32 @@ export default function DetectionsTable({ rows, onReview }) {
     </div>
   );
 }
+
+const StatusBadge = ({ status }) => {
+  const statusConfig = {
+    confirm: { label: 'Accepted', color: '#4caf50', bg: '#e8f5e9' },
+    reject: { label: 'Rejected', color: '#f44336', bg: '#ffebee' },
+    default: { label: 'Pending', color: '#ff9800', bg: '#fff3e0' }
+  };
+  
+  const { label, color, bg } = statusConfig[status] || statusConfig.default;
+  
+  return (
+    <span style={{
+      padding: '4px 8px',
+      borderRadius: '12px',
+      fontSize: '12px',
+      fontWeight: 500,
+      color,
+      backgroundColor: bg,
+      display: 'inline-block',
+      minWidth: '80px',
+      textAlign: 'center'
+    }}>
+      {label}
+    </span>
+  );
+};
 
 const S = {
   emptyContainer: {
