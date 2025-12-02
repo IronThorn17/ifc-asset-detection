@@ -29,21 +29,19 @@ PANO_FACES = {
     "bottom": "img_bottom"
 }
 
-def get_unprocessed_panos(conn):
-    """Return a list of panorama IDs that have not been processed by the current model."""
+def latest_pano(conn):
+    """Return the latest panorama that has ALL SIX faces."""
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT p.id
-            FROM panoramas p
-            LEFT JOIN (
-                SELECT DISTINCT pano_id
-                FROM detections
-                WHERE model_version = %s
-            ) d ON p.id = d.pano_id
-            WHERE d.pano_id IS NULL
-            ORDER BY p.id
-        """, (MODEL_VERSION,))
-        return [row[0] for row in cur.fetchall()]
+        cur.execute(f"""
+            SELECT id,
+                   image_byte_length,
+                   image_content_type
+            FROM panoramas
+            WHERE { " AND ".join([f"{col} IS NOT NULL" for col in PANO_FACES.values()]) }
+            ORDER BY id DESC
+            LIMIT 1
+        """)
+        return cur.fetchone()
 
 def load_face_bytes(conn, pano_id, face_column):
     """Load one face of the panorama."""
@@ -61,45 +59,24 @@ def load_face_bytes(conn, pano_id, face_column):
 # -------------------------------------------
 
 def run_yolo_on_face(image_bytes):
-    """Decode and run YOLO on a single face, returns boxes and image dimensions."""
+    """Decode and run YOLO on a single face."""
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
-        return [], None
+        return []
     results = model(img)[0]
-    # Return boxes and image dimensions (width, height)
-    return results.boxes, (img.shape[1], img.shape[0])
+    return results.boxes
 
-def save_detection_row(conn, pano_id, face_id, box, img_w, img_h):
+def save_detection_row(conn, pano_id, face_id, box):
     cls = int(box.cls)
     label = model.names[cls]
     conf = float(box.conf)
 
-    # YOLO xyxy -> normalized xywh (center x, center y, width, height)
+    # YOLO xyxy → xywh
     x1, y1, x2, y2 = box.xyxy.tolist()[0]
-    
-    # Convert to center x,y, width, height
-    box_w = float(x2 - x1)
-    box_h = float(y2 - y1)
-    center_x = float(x1 + box_w / 2)
-    center_y = float(y1 + box_h / 2)
-
-    # Normalize coordinates if image dimensions are valid
-    if img_w > 0 and img_h > 0:
-        norm_cx = center_x / img_w
-        norm_cy = center_y / img_h
-        norm_w = box_w / img_w
-        norm_h = box_h / img_h
-        
-        bbox_xywh = [
-            max(0.0, min(1.0, norm_cx)),
-            max(0.0, min(1.0, norm_cy)),
-            max(0.0, min(1.0, norm_w)),
-            max(0.0, min(1.0, norm_h)),
-        ]
-    else:
-        # Fallback for invalid image dimensions
-        bbox_xywh = [0, 0, 0, 0]
+    w = float(x2 - x1)
+    h = float(y2 - y1)
+    bbox_xywh = [float(x1), float(y1), w, h]
 
     # Get enhanced class information
     class_info = IFC_CLASS_MAPPING.get(label, {})
@@ -141,13 +118,6 @@ def save_detection_row(conn, pano_id, face_id, box, img_w, img_h):
 def process_pano(conn, pano_id):
     print(f"[ML] Running inference for panorama {pano_id}...")
 
-    # Clear old detections for this panorama and model version
-    with conn.cursor() as cur:
-        cur.execute(
-            "DELETE FROM detections WHERE pano_id = %s AND model_version = %s",
-            (pano_id, MODEL_VERSION),
-        )
-
     for face_name, col_name in PANO_FACES.items():
         face_bytes = load_face_bytes(conn, pano_id, col_name)
         if not face_bytes:
@@ -155,15 +125,10 @@ def process_pano(conn, pano_id):
             continue
 
         print(f"[ML] Running YOLO on face: {face_name}")
-        boxes, dims = run_yolo_on_face(face_bytes)
-        if not dims:
-            print(f"[WARN] Could not decode image for face {face_name} of pano {pano_id}")
-            continue
-            
-        img_w, img_h = dims
+        boxes = run_yolo_on_face(face_bytes)
 
         for box in boxes:
-            save_detection_row(conn, pano_id, face_name, box, img_w, img_h)
+            save_detection_row(conn, pano_id, face_name, box)
 
     conn.commit()
     print(f"[ML] Completed pano {pano_id}")
@@ -171,19 +136,19 @@ def process_pano(conn, pano_id):
 def main():
     print("ML detection service running...")
     print(f"Loaded {len(IFC_CLASS_MAPPING)} IFC class mappings")
+    last_seen = None
 
     with psycopg.connect(DB_URL) as conn:
         while True:
-            unprocessed_ids = get_unprocessed_panos(conn)
+            row = latest_pano(conn)
 
-            if unprocessed_ids:
-                print(f"Found {len(unprocessed_ids)} unprocessed panoramas to process.")
-                for pano_id in unprocessed_ids:
+            if row:
+                pano_id, byte_len, ctype = row
+
+                if pano_id != last_seen:
                     process_pano(conn, pano_id)
-                print("Finished processing batch.")
-            else:
-                print("No new panoramas to process. Waiting...")
-            
+                    last_seen = pano_id
+
             time.sleep(POLL_SECS)
 
 if __name__ == "__main__":
