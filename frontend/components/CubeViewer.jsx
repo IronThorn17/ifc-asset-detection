@@ -203,7 +203,7 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
 
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
-      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
       const sprite = new THREE.Sprite(mat);
       const aspect = w / h;
       const worldH = worldW / aspect;
