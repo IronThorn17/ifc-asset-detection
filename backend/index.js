@@ -1,17 +1,27 @@
 const express = require("express");
 const cors = require("cors");
 const { pool } = require("./db");
-
 const multer = require("multer");
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
 });
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// --- HELPERS ---
+const toNum = (v) => {
+  if (v === undefined || v === null || v === "") return null;
+  const num = Number(v);
+  return isNaN(num) ? null : num;
+};
+
+const getFile = (req, key) => req.files?.[key]?.[0] ?? null;
+
+// --- ROUTES ---
 app.get("/health", (_, res) => res.json({ ok: true }));
 app.get("/health/db", async (_, res) => {
   try {
@@ -35,20 +45,25 @@ app.post(
   async (req, res) => {
     try {
       const { property_id, level, lat, lon, alt, timestamp, area } = req.body || {};
-      const toNum = (v) => {
-        if (v === undefined || v === null || v === "") return null;
-        const num = Number(v);
-        return isNaN(num) ? null : num;
-      };
 
-      const faces = {};
-      const getFile = (key) => req.files?.[key]?.[0] ?? null;
-      for (const k of ["top", "bottom", "front", "back", "left", "right"]) {
-        if (getFile(k)) faces[k] = true;
+      const uploadedFiles = ["top", "bottom", "front", "back", "left", "right"]
+        .map(key => getFile(req, key))
+        .filter(Boolean);
+
+      if (uploadedFiles.length === 0) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: "At least one face image is required" 
+        });
       }
+      
+      const primaryFile = uploadedFiles[0];
 
       const facesJson = {
-        faces,
+        faces: uploadedFiles.reduce((acc, file) => {
+          acc[file.fieldname] = true;
+          return acc;
+        }, {}),
         meta: {
           lat: toNum(lat),
           lon: toNum(lon),
@@ -59,19 +74,6 @@ app.post(
           level: level || null,
         },
       };
-
-      // Check if at least one file is present
-      const uploadedFiles = [];
-      for (const k of ["top", "bottom", "front", "back", "left", "right"]) {
-        if (getFile(k)) uploadedFiles.push(k);
-      }
-      
-      if (uploadedFiles.length === 0) {
-        return res.status(400).json({ 
-          ok: false, 
-          error: "At least one face image is required" 
-        });
-      }
 
       const q = `
         INSERT INTO panoramas
@@ -90,14 +92,14 @@ app.post(
         toNum(alt),
         timestamp ? new Date(timestamp) : new Date(),
         facesJson,
-        getFile("top")?.buffer ?? null,
-        getFile("bottom")?.buffer ?? null,
-        getFile("front")?.buffer ?? null,
-        getFile("back")?.buffer ?? null,
-        getFile("left")?.buffer ?? null,
-        getFile("right")?.buffer ?? null,
-        getFile("front")?.mimetype || "image/jpeg", // store one common type
-        getFile("front")?.size ?? null,
+        getFile(req, "top")?.buffer ?? null,
+        getFile(req, "bottom")?.buffer ?? null,
+        getFile(req, "front")?.buffer ?? null,
+        getFile(req, "back")?.buffer ?? null,
+        getFile(req, "left")?.buffer ?? null,
+        getFile(req, "right")?.buffer ?? null,
+        primaryFile.mimetype || "image/jpeg",
+        primaryFile.size ?? null,
       ];
 
       const { rows } = await pool.query(q, params);
@@ -108,60 +110,6 @@ app.post(
     }
   }
 );
-
-// // POST /ingest/pano-file (multipart)
-// app.post("/ingest/pano-file", upload.single("file"), async (req, res) => {
-//   try {
-//     if (!req.file)
-//       return res.status(400).json({ ok: false, error: "Missing file" });
-
-//     const { property_id, level, lat, lon, heading_deg, faces_json } =
-//       req.body || {};
-//     const toNumOrNull = (v) => {
-//       if (v === undefined || v === null) return null;
-//       const s = String(v).trim().toLowerCase();
-//       if (s === "" || s === "null" || s === "undefined" || s === "nan")
-//         return null;
-//       const n = Number(s);
-//       return Number.isFinite(n) ? n : null;
-//     };
-//     const toIntOrNull = (v) => {
-//       const n = toNumOrNull(v);
-//       return n === null ? null : Math.trunc(n);
-//     };
-//     let faces = {};
-//     if (faces_json) {
-//       try {
-//         faces = JSON.parse(faces_json);
-//       } catch {
-//         faces = {};
-//       }
-//     }
-
-//     const q = `
-//       INSERT INTO panoramas
-//         (property_id, level, lat, lon, heading_deg, captured_at, faces_json,
-//          image, image_content_type, image_byte_length)
-//       VALUES ($1,$2,$3,$4,$5,NOW(),$6,$7,$8,$9)
-//       RETURNING id
-//     `;
-//     const params = [
-//       toIntOrNull(property_id),
-//       level || null,
-//       toNumOrNull(lat),
-//       toNumOrNull(lon),
-//       toNumOrNull(heading_deg),
-//       faces,
-//       req.file.buffer,
-//       req.file.mimetype || null,
-//       req.file.size ?? null,
-//     ];
-//     const { rows } = await pool.query(q, params);
-//     res.json({ ok: true, pano_id: rows[0].id });
-//   } catch (e) {
-//     res.status(400).json({ ok: false, error: e.message });
-//   }
-// });
 
 app.get("/detections", async (req, res) => {
   const { pano_id } = req.query;

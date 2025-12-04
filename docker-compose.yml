@@ -52,6 +52,7 @@ services:
     depends_on: [db]
     volumes:
       - ./ml:/app
+      - ./runs:/app/runs
 
 volumes:
   db_data:

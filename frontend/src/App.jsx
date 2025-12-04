@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { listDetections, reviewDetection, convertDetectionsToAssets, listAssets } from "./api";
 import CubeViewer from "../components/CubeViewer";
 import ImageSetPanel from "../components/ImageSetPanel";
@@ -18,26 +18,30 @@ export default function App() {
   const [view, setView] = useState("review"); // 'review' | 'upload' | 'assets'
   const [viewerFaces, setViewerFaces] = useState(null);
   const [conversionLoading, setConversionLoading] = useState(false);
+  const [minConf, setMinConf] = useState(0.05);
+  const [showLabels, setShowLabels] = useState(true);
 
-  async function load(current = panoId) {
+  // Polling for detections
+  const pollInterval = useRef(null);
+
+  async function load(current = panoId, quiet = false) {
     if (!current) return;
     try {
       setErr("");
-      setLoading(true);
+      if (!quiet) setLoading(true);
       const data = await listDetections(current);
       setRows(data);
     } catch (e) {
       setErr(e.message || "Failed to load");
       setRows([]);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }
 
   async function loadAssets() {
     try {
       setLoading(true);
-      // Get property_id from current panorama
       if (panoId) {
         const response = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/pano/${panoId}`);
         if (response.ok) {
@@ -54,19 +58,45 @@ export default function App() {
     }
   }
 
-  async function loadFaces(panoId) {
-    if (!panoId) return null;
+  async function loadFaces(currentPanoId) {
+    if (!currentPanoId) return;
     const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-    const base = `${API_URL}/pano/${panoId}/image`;
-    return {
-      top: `${base}/top`,
-      bottom: `${base}/bottom`,
-      front: `${base}/front`,
-      back: `${base}/back`,
-      left: `${base}/left`,
-      right: `${base}/right`,
-    };
+    
+    try {
+      // First, get the panorama data to see which faces exist
+      const panoRes = await fetch(`${API_URL}/pano/${currentPanoId}`);
+      if (!panoRes.ok) {
+        console.error("Failed to fetch panorama data");
+        // Ensure viewer renders even when pano is missing
+        setViewerFaces({});
+        return;
+      }
+      
+      const panoData = await panoRes.json();
+      const availableFaces = {};
+      
+      // Only include faces that have a non-null value in the database
+      if (panoData.img_top) availableFaces.top = `${API_URL}/pano/${currentPanoId}/image/top`;
+      if (panoData.img_bottom) availableFaces.bottom = `${API_URL}/pano/${currentPanoId}/image/bottom`;
+      if (panoData.img_front) availableFaces.front = `${API_URL}/pano/${currentPanoId}/image/front`;
+      if (panoData.img_back) availableFaces.back = `${API_URL}/pano/${currentPanoId}/image/back`;
+      if (panoData.img_left) availableFaces.left = `${API_URL}/pano/${currentPanoId}/image/left`;
+      if (panoData.img_right) availableFaces.right = `${API_URL}/pano/${currentPanoId}/image/right`;
+      
+      setViewerFaces(availableFaces);
+      
+      // Log available faces for debugging
+      console.log('Available faces:', Object.keys(availableFaces));
+    } catch (e) {
+      console.error("Error loading panorama faces:", e);
+      setViewerFaces({});
+    }
   }
+
+  // Stop polling when component unmounts
+  useEffect(() => {
+    return () => clearInterval(pollInterval.current);
+  }, []);
 
   useEffect(() => {
     async function loadData() {
@@ -74,21 +104,50 @@ export default function App() {
         await loadAssets();
       } else {
         await load(panoId);
-        const faces = await loadFaces(panoId);
-        setViewerFaces(faces);
+        await loadFaces(panoId);
+
+        // Clear previous interval and start polling for new detections
+        clearInterval(pollInterval.current);
+        pollInterval.current = setInterval(() => {
+          load(panoId, true); // Quietly poll in the background
+        }, 5000); // Poll every 5 seconds
       }
     }
     loadData();
   }, [panoId, view]);
 
-  async function handleReview(id, action) {
+  const handleReview = async (detectionId, action) => {
     try {
-      await reviewDetection({ detection_id: id, action });
-      await load();
+      // Optimistically update the UI
+      setRows(prevRows => 
+        prevRows.map(row => 
+          row.id === detectionId 
+            ? { ...row, review_action: action } 
+            : row
+        )
+      );
+      
+      // Call the API
+      await reviewDetection({ 
+        detection_id: detectionId, 
+        action,
+        note: `Manually ${action}ed by user`
+      });
+      
+      // Refresh the data
+      await load(panoId, true);
+      
     } catch (e) {
-      alert(e.message || "Review failed");
+      console.error('Review failed:', e);
+      // Revert on error
+      await load(panoId, true);
     }
-  }
+  };
+  
+  // Update the detections when they change
+  const handleDetectionsUpdate = (updatedDetections) => {
+    setRows(updatedDetections);
+  };
 
   async function handleConvertToAssets() {
     if (!panoId) return;
@@ -97,8 +156,7 @@ export default function App() {
       setConversionLoading(true);
       const result = await convertDetectionsToAssets(panoId);
       alert(result.message || "Successfully converted detections to assets!");
-      // Reload to show updated data
-      await load();
+      await load(); // Reload to show updated data
     } catch (e) {
       alert(e.message || "Failed to convert detections to assets");
     } finally {
@@ -185,7 +243,33 @@ export default function App() {
                   </div>
                 </div>
                 <div style={S.viewerSquare}>
-                  <CubeViewer faces={viewerFaces} detections={rows} />
+                  <CubeViewer 
+                    faces={viewerFaces} 
+                    detections={rows}
+                    minConfidence={minConf}
+                    showLabels={showLabels}
+                  />
+                </div>
+                <div style={S.viewerControls}>
+                  <label style={S.ctrlLabel}>
+                    Min confidence
+                    <input 
+                      type="range" 
+                      min={0} max={1} step={0.01}
+                      value={minConf}
+                      onChange={(e) => setMinConf(parseFloat(e.target.value))}
+                      style={S.ctrlRange}
+                    />
+                    <span style={S.ctrlValue}>{minConf.toFixed(2)}</span>
+                  </label>
+                  <label style={S.ctrlLabelRow}>
+                    <input 
+                      type="checkbox"
+                      checked={showLabels}
+                      onChange={(e) => setShowLabels(e.target.checked)}
+                    />
+                    <span>Show labels</span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -196,7 +280,11 @@ export default function App() {
                 </div>
                 <ErrorNote err={err} />
                 <div style={S.scrollArea}>
-                  <DetectionsTable rows={rows} onReview={handleReview} />
+                  <DetectionsTable 
+                rows={rows} 
+                onReview={handleReview} 
+                onUpdate={handleDetectionsUpdate}
+              />
                 </div>
               </div>
             </div>
@@ -396,6 +484,33 @@ const S = {
     overflow: "hidden",
     backgroundColor: "#0a1929",
     display: "flex",
+  },
+  viewerControls: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    marginTop: "10px",
+  },
+  ctrlLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: "#bbdefb",
+  },
+  ctrlLabelRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    color: "#bbdefb",
+  },
+  ctrlRange: {
+    width: "160px",
+  },
+  ctrlValue: {
+    minWidth: "40px",
+    textAlign: "right",
+    color: "#4a9bff",
+    fontWeight: "600",
   },
   scrollArea: {
     flex: 1,
