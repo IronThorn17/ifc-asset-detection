@@ -1,0 +1,17 @@
+ifcDoor
+ifcSign
+ifcWall
+ifcFurniture
+ifcLightFixture
+ifcAirTerminal
+ifcComputer
+ifcSwitchingDevice
+ifcSensor
+ifcWindow
+ifcAudioVisualAppliance
+ifcElectricalOutlet
+ifcSanitaryTerminal
+ifcEquipmentElement
+ifcFurnishingElement
+ifcDuctSegment
+ifcController

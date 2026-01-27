@@ -1,0 +1,155 @@
+{
+  "ifcDoor": {
+    "category": "Building Elements",
+    "description": "A door is a construction for closing an opening in a wall or partition.",
+    "ifc_type": "IfcDoor",
+    "properties": {
+      "is_external": true,
+      "function": "Access control"
+    }
+  },
+  "ifcWindow": {
+    "category": "Building Elements",
+    "description": "A window is a construction for closing an opening in a wall or roof, primarily to admit light and provide ventilation.",
+    "ifc_type": "IfcWindow",
+    "properties": {
+      "is_external": true,
+      "function": "Light and ventilation"
+    }
+  },
+  "ifcWall": {
+    "category": "Building Elements",
+    "description": "A wall is a vertical construction that bounds or subdivides a building.",
+    "ifc_type": "IfcWall",
+    "properties": {
+      "is_external": true,
+      "function": "Structural support"
+    }
+  },
+  "ifcFurniture": {
+    "category": "Furnishings",
+    "description": "Furniture refers to movable objects intended to support various human activities.",
+    "ifc_type": "IfcFurniture",
+    "properties": {
+      "is_external": false,
+      "function": "Human activities support"
+    }
+  },
+  "ifcLightFixture": {
+    "category": "Electrical",
+    "description": "A light fixture is a device that holds and protects the light bulb and is used to direct the light.",
+    "ifc_type": "IfcLightFixture",
+    "properties": {
+      "is_external": false,
+      "function": "Illumination"
+    }
+  },
+  "ifcAirTerminal": {
+    "category": "HVAC",
+    "description": "An air terminal is a device that controls the flow of air in a duct system.",
+    "ifc_type": "IfcAirTerminal",
+    "properties": {
+      "is_external": false,
+      "function": "Air distribution"
+    }
+  },
+  "ifcComputer": {
+    "category": "Technology",
+    "description": "A computer is a programmable electronic device that processes data.",
+    "ifc_type": "IfcComputer",
+    "properties": {
+      "is_external": false,
+      "function": "Data processing"
+    }
+  },
+  "ifcSwitchingDevice": {
+    "category": "Electrical",
+    "description": "A switching device is a device that controls the flow of electricity in a circuit.",
+    "ifc_type": "IfcSwitchingDevice",
+    "properties": {
+      "is_external": false,
+      "function": "Electrical control"
+    }
+  },
+  "ifcSensor": {
+    "category": "Automation",
+    "description": "A sensor is a device that detects and responds to some type of input from the physical environment.",
+    "ifc_type": "IfcSensor",
+    "properties": {
+      "is_external": false,
+      "function": "Environmental monitoring"
+    }
+  },
+  "ifcAudioVisualAppliance": {
+    "category": "Technology",
+    "description": "An audio visual appliance is a device that processes or displays audio or video signals.",
+    "ifc_type": "IfcAudioVisualAppliance",
+    "properties": {
+      "is_external": false,
+      "function": "Audio/Visual processing"
+    }
+  },
+  "ifcElectricalOutlet": {
+    "category": "Electrical",
+    "description": "An electrical outlet is a device that allows for the connection of electrical devices to a power source.",
+    "ifc_type": "IfcElectricalOutlet",
+    "properties": {
+      "is_external": false,
+      "function": "Power distribution"
+    }
+  },
+  "ifcSanitaryTerminal": {
+    "category": "Plumbing",
+    "description": "A sanitary terminal is a fixed appliance that receives water and/or waste water.",
+    "ifc_type": "IfcSanitaryTerminal",
+    "properties": {
+      "is_external": false,
+      "function": "Water handling"
+    }
+  },
+  "ifcEquipmentElement": {
+    "category": "Mechanical",
+    "description": "An equipment element is a fixed mechanical device that performs a specific function.",
+    "ifc_type": "IfcEquipmentElement",
+    "properties": {
+      "is_external": false,
+      "function": "Mechanical operations"
+    }
+  },
+  "ifcFurnishingElement": {
+    "category": "Furnishings",
+    "description": "A furnishing element is a movable or fixed object that contributes to the equipment of a building.",
+    "ifc_type": "IfcFurnishingElement",
+    "properties": {
+      "is_external": false,
+      "function": "Building equipment"
+    }
+  },
+  "ifcDuctSegment": {
+    "category": "HVAC",
+    "description": "A duct segment is a linear element that forms part of a duct system.",
+    "ifc_type": "IfcDuctSegment",
+    "properties": {
+      "is_external": false,
+      "function": "Air transport"
+    }
+  },
+  "ifcController": {
+    "category": "Automation",
+    "description": "A controller is a device that manages and controls other devices or systems.",
+    "ifc_type": "IfcController",
+    "properties": {
+      "is_external": false,
+      "function": "System control"
+    }
+  },
+  "ifcSign": {
+    "category": "Safety",
+    "description": "A sign is a device that conveys information or instructions.",
+    "ifc_type": "IfcSign",
+    "properties": {
+      "is_external": true,
+      "function": "Information display"
+    }
+  }
+}
