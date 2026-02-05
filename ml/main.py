@@ -2,10 +2,10 @@ import os, time, psycopg, cv2, json
 import numpy as np
 from ultralytics import YOLO
 
-DB_URL = os.getenv("DB_URL", "postgres://postgres:postgres@localhost:5432/ifc_assets")
+DB_URL = os.getenv("DB_URL", "postgres://postgres:postgres@db:5432/ifc_assets")
 POLL_SECS = float(os.getenv("POLL_SECS", "5"))
-MODEL_PATH = "model/train6-best.pt"
-MODEL_VERSION = "train6-best.pt"
+MODEL_PATH = "model/best.pt"
+MODEL_VERSION = "best.pt"
 model = YOLO(MODEL_PATH)
 
 # Load IFC class mapping
@@ -66,7 +66,7 @@ def run_yolo_on_face(image_bytes):
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         return [], None
-    results = model(img, conf=0.05)[0]
+    results = model(img)[0]
     # Return boxes and image dimensions (width, height)
     return results.boxes, (img.shape[1], img.shape[0])
 
@@ -183,7 +183,6 @@ def main():
                 print("Finished processing batch.")
             else:
                 print("No new panoramas to process. Waiting...")
-                conn.commit()  # Refresh transaction to see new data
             
             time.sleep(POLL_SECS)
 
