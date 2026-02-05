@@ -1,12 +1,151 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-export default function CubeViewer({ faces = {}, detections = [], minConfidence = 0.05, showLabels = true }) {
+export default function CubeViewer({ faces = {}, detections = [], minConfidence = 0.05, showLabels = true, focusedDetection = null }) {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
   const rendererRef = useRef(null);
   const detGroupRef = useRef(null);
+  
+  // View state refs to allow access from multiple effects
+  const viewState = useRef({ yaw: 0, pitch: 0 });
+
+  // Helper to map normalized bbox to cube face coordinates
+  // Returns [p1, p2, p3, p4] (clockwise from top-left)
+  const rectOnFace = (face, cx, cy, w, h, size = 1000) => {
+    const clamp01 = (n) => Math.max(0, Math.min(1, n));
+    cx = clamp01(cx); cy = clamp01(cy); w = clamp01(w); h = clamp01(h);
+    
+    const X = (cx - 0.5) * size;
+    const Y = (0.5 - cy) * size; // invert Y
+    const halfW = (w * size) / 2;
+    const halfH = (h * size) / 2;
+
+    let p1, p2, p3, p4; 
+    
+    switch (face) {
+      case "front": {
+        const z = 499;
+        p1 = new THREE.Vector3(X - halfW, Y + halfH, z);
+        p2 = new THREE.Vector3(X + halfW, Y + halfH, z);
+        p3 = new THREE.Vector3(X + halfW, Y - halfH, z);
+        p4 = new THREE.Vector3(X - halfW, Y - halfH, z);
+        break;
+      }
+      case "back": {
+        const z = -499;
+        const Xm = -X;
+        p1 = new THREE.Vector3(Xm - halfW, Y + halfH, z);
+        p2 = new THREE.Vector3(Xm + halfW, Y + halfH, z);
+        p3 = new THREE.Vector3(Xm + halfW, Y - halfH, z);
+        p4 = new THREE.Vector3(Xm - halfW, Y - halfH, z);
+        break;
+      }
+      case "left": {
+        const x = -499;
+        const Z = (cx - 0.5) * size;
+        const halfWz = halfW;
+        p1 = new THREE.Vector3(x, Y + halfH, Z - halfWz);
+        p2 = new THREE.Vector3(x, Y + halfH, Z + halfWz);
+        p3 = new THREE.Vector3(x, Y - halfH, Z + halfWz);
+        p4 = new THREE.Vector3(x, Y - halfH, Z - halfWz);
+        break;
+      }
+      case "right": {
+        const x = 499;
+        const Z = -(cx - 0.5) * size; 
+        const halfWz = halfW;
+        p1 = new THREE.Vector3(x, Y + halfH, Z - halfWz);
+        p2 = new THREE.Vector3(x, Y + halfH, Z + halfWz);
+        p3 = new THREE.Vector3(x, Y - halfH, Z + halfWz);
+        p4 = new THREE.Vector3(x, Y - halfH, Z - halfWz);
+        break;
+      }
+      case "top": {
+        const y = 499;
+        const Xh = (cx - 0.5) * size;
+        const Zh = -(cy - 0.5) * size;
+        p1 = new THREE.Vector3(Xh - halfW, y, Zh - halfH);
+        p2 = new THREE.Vector3(Xh + halfW, y, Zh - halfH);
+        p3 = new THREE.Vector3(Xh + halfW, y, Zh + halfH);
+        p4 = new THREE.Vector3(Xh - halfW, y, Zh + halfH);
+        break;
+      }
+      case "bottom": {
+        const y = -499;
+        const Xh = (cx - 0.5) * size;
+        const Zh = (cy - 0.5) * size;
+        p1 = new THREE.Vector3(Xh - halfW, y, Zh - halfH);
+        p2 = new THREE.Vector3(Xh + halfW, y, Zh - halfH);
+        p3 = new THREE.Vector3(Xh + halfW, y, Zh + halfH);
+        p4 = new THREE.Vector3(Xh - halfW, y, Zh + halfH);
+        break;
+      }
+      default: {
+        const z = 499;
+        p1 = new THREE.Vector3(X - halfW, Y + halfH, z);
+        p2 = new THREE.Vector3(X + halfW, Y + halfH, z);
+        p3 = new THREE.Vector3(X + halfW, Y - halfH, z);
+        p4 = new THREE.Vector3(X - halfW, Y - halfH, z);
+      }
+    }
+    return [p1, p2, p3, p4];
+  };
+
+  // Handle focus on detection
+  useEffect(() => {
+    if (!focusedDetection) return;
+    
+    const d = focusedDetection;
+    const bbox = Array.isArray(d.bbox_xywh) ? d.bbox_xywh : null;
+    const face = d.face_id || d.face || "front";
+    
+    if (bbox) {
+      const [cx, cy, w, h] = bbox;
+      // Get 3D coordinates of the detection center
+      const points = rectOnFace(face, cx, cy, w, h);
+      
+      // Calculate center point of the rectangle
+      const center = new THREE.Vector3()
+        .addVectors(points[0], points[2])
+        .multiplyScalar(0.5);
+      
+      // Convert to yaw/pitch
+      // pitch is rotation around X axis (looking up/down)
+      // yaw is rotation around Y axis (looking left/right)
+      
+      const r = Math.sqrt(center.x * center.x + center.z * center.z);
+      const pitch = Math.atan2(center.y, r);
+      const yaw = Math.atan2(center.x, center.z);
+      
+      // Update view state - Note: Three.js camera usually looks at -Z, 
+      // but our "front" is +Z (499).
+      // If we use lookAt, Three.js handles it. 
+      // But we are manually setting rotation.
+      // Let's rely on standard spherical conversion.
+      // If center is (0, 0, 499), yaw should be PI?
+      // atan2(0, 499) is 0. 
+      // But rotation(0,0,0) looks at -Z.
+      // So we might need to offset yaw by PI if we want to look at +Z with yaw=0?
+      // Wait, let's test.
+      // If front is +Z, we need to rotate 180 deg around Y.
+      // Let's try standard math and see.
+      
+      // Adjust yaw because camera looks at -Z by default
+      // If point is at +Z, yaw should be PI.
+      // atan2(x, z) for (0, 499) is 0.
+      // So we likely need yaw = atan2(x, z) + PI? 
+      // Or just standard LookAt logic.
+      
+      viewState.current.pitch = -pitch; // Invert pitch for camera rotation?
+      viewState.current.yaw = yaw + Math.PI; // Look towards the point
+      
+      // Ensure pitch is clamped
+      const clamp = Math.PI / 2 - 0.01;
+      viewState.current.pitch = Math.max(-clamp, Math.min(clamp, viewState.current.pitch));
+    }
+  }, [focusedDetection]);
 
   // Build viewer (scene, camera, renderer, skybox)
   useEffect(() => {
@@ -71,7 +210,7 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
     // Mouse look controls
     let isDown = false;
     let lx = 0, ly = 0;
-    let yaw = 0, pitch = 0;
+    
     const onDown = (e) => { isDown = true; lx = e.clientX; ly = e.clientY; };
     const onUp = () => { isDown = false; };
     const onMove = (e) => {
@@ -79,9 +218,12 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
       const dx = e.clientX - lx;
       const dy = e.clientY - ly;
       lx = e.clientX; ly = e.clientY;
-      yaw -= dx * 0.0025; pitch -= dy * 0.0025;
+      
+      viewState.current.yaw -= dx * 0.0025; 
+      viewState.current.pitch -= dy * 0.0025;
+      
       const clamp = Math.PI / 2 - 0.01;
-      pitch = Math.max(-clamp, Math.min(clamp, pitch));
+      viewState.current.pitch = Math.max(-clamp, Math.min(clamp, viewState.current.pitch));
     };
     const onWheel = (e) => {
       camera.fov = THREE.MathUtils.clamp(camera.fov + (e.deltaY > 0 ? 2 : -2), 30, 100);
@@ -102,7 +244,7 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
 
     let raf = 0;
     const loop = () => {
-      camera.rotation.set(pitch, yaw, 0, "YXZ");
+      camera.rotation.set(viewState.current.pitch, viewState.current.yaw, 0, "YXZ");
       renderer.render(scene, camera);
       raf = requestAnimationFrame(loop);
     };
@@ -214,85 +356,7 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
     const clamp01 = (n) => Math.max(0, Math.min(1, n));
 
     // Map normalized bbox to cube face coordinates
-    const rectOnFace = (face, cx, cy, w, h) => {
-      // convert normalized center to cube coordinates
-      cx = clamp01(cx); cy = clamp01(cy); w = clamp01(w); h = clamp01(h);
-      const X = (cx - 0.5) * size;
-      const Y = (0.5 - cy) * size; // invert Y
-      const halfW = (w * size) / 2;
-      const halfH = (h * size) / 2;
-
-      let p1, p2, p3, p4; // clockwise
-      switch (face) {
-        case "front": {
-          const z = 499;
-          p1 = new THREE.Vector3(X - halfW, Y + halfH, z);
-          p2 = new THREE.Vector3(X + halfW, Y + halfH, z);
-          p3 = new THREE.Vector3(X + halfW, Y - halfH, z);
-          p4 = new THREE.Vector3(X - halfW, Y - halfH, z);
-          break;
-        }
-        case "back": {
-          const z = -499;
-          // mirror X so it aligns with texture orientation
-          const Xm = -X;
-          p1 = new THREE.Vector3(Xm - halfW, Y + halfH, z);
-          p2 = new THREE.Vector3(Xm + halfW, Y + halfH, z);
-          p3 = new THREE.Vector3(Xm + halfW, Y - halfH, z);
-          p4 = new THREE.Vector3(Xm - halfW, Y - halfH, z);
-          break;
-        }
-        case "left": {
-          const x = -499;
-          // horizontal maps to Z
-          const Z = (cx - 0.5) * size;
-          const halfWz = halfW;
-          p1 = new THREE.Vector3(x, Y + halfH, Z - halfWz);
-          p2 = new THREE.Vector3(x, Y + halfH, Z + halfWz);
-          p3 = new THREE.Vector3(x, Y - halfH, Z + halfWz);
-          p4 = new THREE.Vector3(x, Y - halfH, Z - halfWz);
-          break;
-        }
-        case "right": {
-          const x = 499;
-          const Z = -(cx - 0.5) * size; // mirror
-          const halfWz = halfW;
-          p1 = new THREE.Vector3(x, Y + halfH, Z - halfWz);
-          p2 = new THREE.Vector3(x, Y + halfH, Z + halfWz);
-          p3 = new THREE.Vector3(x, Y - halfH, Z + halfWz);
-          p4 = new THREE.Vector3(x, Y - halfH, Z - halfWz);
-          break;
-        }
-        case "top": {
-          const y = 499;
-          const Xh = (cx - 0.5) * size;
-          const Zh = -(cy - 0.5) * size; // rough mapping
-          p1 = new THREE.Vector3(Xh - halfW, y, Zh - halfH);
-          p2 = new THREE.Vector3(Xh + halfW, y, Zh - halfH);
-          p3 = new THREE.Vector3(Xh + halfW, y, Zh + halfH);
-          p4 = new THREE.Vector3(Xh - halfW, y, Zh + halfH);
-          break;
-        }
-        case "bottom": {
-          const y = -499;
-          const Xh = (cx - 0.5) * size;
-          const Zh = (cy - 0.5) * size; // rough mapping
-          p1 = new THREE.Vector3(Xh - halfW, y, Zh - halfH);
-          p2 = new THREE.Vector3(Xh + halfW, y, Zh - halfH);
-          p3 = new THREE.Vector3(Xh + halfW, y, Zh + halfH);
-          p4 = new THREE.Vector3(Xh - halfW, y, Zh + halfH);
-          break;
-        }
-        default: {
-          const z = 499;
-          p1 = new THREE.Vector3(X - halfW, Y + halfH, z);
-          p2 = new THREE.Vector3(X + halfW, Y + halfH, z);
-          p3 = new THREE.Vector3(X + halfW, Y - halfH, z);
-          p4 = new THREE.Vector3(X - halfW, Y - halfH, z);
-        }
-      }
-      return [p1, p2, p3, p4];
-    };
+    // (Inner definition removed to use component-level helper)
 
     const threshold = typeof minConfidence === "number" ? minConfidence : 0.05;
 

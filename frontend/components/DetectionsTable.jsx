@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { reviewDetection } from "../src/api";
 
-export default function DetectionsTable({ rows: initialRows, onReview, onUpdate }) {
+export default function DetectionsTable({ rows: initialRows, onReview, onUpdate, onSelect }) {
   const [rows, setRows] = useState(initialRows || []);
   const [loadingId, setLoadingId] = useState(null);
   const [error, setError] = useState(null);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [sortBy, setSortBy] = useState("date_desc");
+
+  useEffect(() => {
+    setRows(initialRows || []);
+  }, [initialRows]);
 
   const handleReview = async (detectionId, action) => {
     try {
@@ -54,6 +60,41 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate 
       setLoadingId(null);
     }
   };
+
+  const processedRows = useMemo(() => {
+    let result = [...rows];
+
+    // Filter
+    if (filterStatus !== "all") {
+      result = result.filter(r => {
+        if (filterStatus === "pending") return !r.review_action;
+        return r.review_action === filterStatus;
+      });
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case "date_desc":
+          return new Date(b.created_at) - new Date(a.created_at);
+        case "date_asc":
+          return new Date(a.created_at) - new Date(b.created_at);
+        case "conf_desc":
+          return (b.confidence || 0) - (a.confidence || 0);
+        case "conf_asc":
+          return (a.confidence || 0) - (b.confidence || 0);
+        case "type_asc":
+          return (a.ifc_class || "").localeCompare(b.ifc_class || "");
+        case "type_desc":
+          return (b.ifc_class || "").localeCompare(a.ifc_class || "");
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [rows, filterStatus, sortBy]);
+
   if (!rows?.length) return (
     <div style={S.emptyContainer}>
       <div style={S.emptyIcon}>
@@ -65,85 +106,139 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate 
   );
 
   return (
-    <div style={S.tableContainer}>
-      <table style={S.table}>
-        <thead>
-          <tr style={S.trHead}>
-            <th style={S.th}>ID</th>
-            <th style={S.th}>Class</th>
-            <th style={S.th}>Confidence</th>
-            <th style={S.th}>Face</th>
-            <th style={S.th}>Position</th>
-            <th style={S.th}>Status</th>
-            <th style={S.th}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} style={S.trBody}>
-              <td style={S.td}>#{r.id}</td>
-              <td style={S.td}>
-                <span style={S.classLabel}>{r.ifc_class || r.label_display}</span>
-              </td>
-              <td style={S.td}>
-                <div style={S.confidenceContainer}>
-                  <div style={{
-                    ...S.confidenceBar,
-                    width: `${(r.confidence || 0) * 100}%`,
-                    backgroundColor: (r.confidence || 0) > 0.7 ? '#66bb6a' : 
-                                  (r.confidence || 0) > 0.4 ? '#ffca28' : '#ef5350'
-                  }}></div>
-                  <span style={S.confidenceText}>
-                    {Math.round((r.confidence || 0) * 100)}%
-                  </span>
-                </div>
-              </td>
-              <td style={S.td}>{r.face_id}</td>
-              <td style={S.td}>
-                {Array.isArray(r.bbox_xywh) ? (
-                  <span style={S.positionBadge}>
-                    [{r.bbox_xywh.map(n => n.toFixed(2)).join(', ')}]
-                  </span>
-                ) : '—'}
-              </td>
-              <td style={S.td}>
-                <StatusBadge status={r.review_action} />
-              </td>
-              <td style={S.td}>
-                <div style={S.actionsContainer}>
-                  <button 
-                    style={{
-                      ...S.actionButton,
-                      ...(r.review_action === 'confirm' ? S.activeButton : {}),
-                      opacity: loadingId === r.id && r.review_action !== 'confirm' ? 0.5 : 1,
-                      cursor: loadingId === r.id ? 'wait' : 'pointer'
-                    }}
-                    onClick={() => handleReview(r.id, 'confirm')}
-                    disabled={loadingId === r.id}
-                    title="Accept detection"
-                  >
-                    <i className="fas fa-check"></i>
-                  </button>
-                  <button 
-                    style={{
-                      ...S.actionButton,
-                      ...S.rejectButton,
-                      ...(r.review_action === 'reject' ? S.activeRejectButton : {}),
-                      opacity: loadingId === r.id && r.review_action !== 'reject' ? 0.5 : 1,
-                      cursor: loadingId === r.id ? 'wait' : 'pointer'
-                    }}
-                    onClick={() => handleReview(r.id, 'reject')}
-                    disabled={loadingId === r.id}
-                    title="Reject detection"
-                  >
-                    <i className="fas fa-times"></i>
-                  </button>
-                </div>
-              </td>
+    <div style={S.container}>
+      <div style={S.controls}>
+        <div style={S.controlGroup}>
+          <label style={S.label}>Status:</label>
+          <select 
+            value={filterStatus} 
+            onChange={e => setFilterStatus(e.target.value)}
+            style={S.select}
+          >
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="confirm">Accepted</option>
+            <option value="reject">Rejected</option>
+          </select>
+        </div>
+        <div style={S.controlGroup}>
+          <label style={S.label}>Sort by:</label>
+          <select 
+            value={sortBy} 
+            onChange={e => setSortBy(e.target.value)}
+            style={S.select}
+          >
+            <option value="date_desc">Newest</option>
+            <option value="date_asc">Oldest</option>
+            <option value="conf_desc">Confidence (High-Low)</option>
+            <option value="conf_asc">Confidence (Low-High)</option>
+            <option value="type_asc">Type (A-Z)</option>
+            <option value="type_desc">Type (Z-A)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style={S.tableContainer}>
+        <table style={S.table}>
+          <thead>
+            <tr style={S.trHead}>
+              <th style={S.th}>ID</th>
+              <th style={S.th}>Class</th>
+              <th style={S.th}>Confidence</th>
+              <th style={S.th}>Face</th>
+              <th style={S.th}>Position</th>
+              <th style={S.th}>Status</th>
+              <th style={S.th}>Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {processedRows.map((r) => (
+              <tr key={r.id} style={S.trBody} onClick={() => onSelect && onSelect(r)}>
+                <td style={S.td}>#{r.id}</td>
+                <td style={S.td}>
+                  <span style={S.classLabel}>{r.ifc_class || r.label_display}</span>
+                </td>
+                <td style={S.td}>
+                  <div style={S.confidenceContainer}>
+                    <div style={{
+                      ...S.confidenceBar,
+                      width: `${(r.confidence || 0) * 100}%`,
+                      backgroundColor: (r.confidence || 0) > 0.7 ? '#66bb6a' : 
+                                    (r.confidence || 0) > 0.4 ? '#ffca28' : '#ef5350'
+                    }}></div>
+                    <span style={S.confidenceText}>
+                      {Math.round((r.confidence || 0) * 100)}%
+                    </span>
+                  </div>
+                </td>
+                <td style={S.td}>{r.face_id}</td>
+                <td style={S.td}>
+                  {Array.isArray(r.bbox_xywh) ? (
+                    <span style={S.positionBadge}>
+                      [{r.bbox_xywh.map(n => n.toFixed(2)).join(', ')}]
+                    </span>
+                  ) : '—'}
+                </td>
+                <td style={S.td}>
+                  <StatusBadge status={r.review_action} />
+                </td>
+                <td style={S.td}>
+                  <div style={S.actionsContainer}>
+                    <button 
+                      style={{
+                        ...S.actionButton,
+                        marginRight: '8px',
+                        backgroundColor: "rgba(33, 150, 243, 0.2)",
+                        color: "#2196f3"
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelect && onSelect(r);
+                      }}
+                      title="Focus on detection"
+                    >
+                      <i className="fas fa-eye"></i>
+                    </button>
+                    <button 
+                      style={{
+                        ...S.actionButton,
+                        ...(r.review_action === 'confirm' ? S.activeButton : {}),
+                        opacity: loadingId === r.id && r.review_action !== 'confirm' ? 0.5 : 1,
+                        cursor: loadingId === r.id ? 'wait' : 'pointer'
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReview(r.id, 'confirm');
+                      }}
+                      disabled={loadingId === r.id}
+                      title="Accept detection"
+                    >
+                      <i className="fas fa-check"></i>
+                    </button>
+                    <button 
+                      style={{
+                        ...S.actionButton,
+                        ...S.rejectButton,
+                        ...(r.review_action === 'reject' ? S.activeRejectButton : {}),
+                        opacity: loadingId === r.id && r.review_action !== 'reject' ? 0.5 : 1,
+                        cursor: loadingId === r.id ? 'wait' : 'pointer'
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReview(r.id, 'reject');
+                      }}
+                      disabled={loadingId === r.id}
+                      title="Reject detection"
+                    >
+                      <i className="fas fa-times"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -175,6 +270,38 @@ const StatusBadge = ({ status }) => {
 };
 
 const S = {
+  container: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+  },
+  controls: {
+    display: 'flex',
+    gap: '20px',
+    padding: '10px',
+    backgroundColor: 'rgba(30, 58, 95, 0.4)',
+    borderRadius: '8px',
+    marginBottom: '10px',
+  },
+  controlGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  label: {
+    color: '#bbdefb',
+    fontSize: '0.9rem',
+    fontWeight: '500',
+  },
+  select: {
+    backgroundColor: 'rgba(13, 27, 42, 0.6)',
+    border: '1px solid #2a4d69',
+    color: '#e0f7fa',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    outline: 'none',
+    cursor: 'pointer',
+  },
   emptyContainer: {
     textAlign: "center",
     padding: "40px 20px",
@@ -194,10 +321,10 @@ const S = {
     margin: 0,
   },
   tableContainer: {
-    overflowX: "hidden", // Changed from "auto" to "hidden" to prevent horizontal scrolling
+    overflowX: "hidden", 
     borderRadius: "8px",
     boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
-    maxHeight: "40vh", // Limit height to prevent vertical scrolling
+    maxHeight: "40vh", 
   },
   table: {
     width: "100%",
@@ -212,6 +339,9 @@ const S = {
     textAlign: "left",
     padding: "15px 12px",
     fontSize: "0.9rem",
+    position: "sticky",
+    top: 0,
+    zIndex: 1,
   },
   trHead: {
     borderBottom: "1px solid #2a4d69",
@@ -219,6 +349,7 @@ const S = {
   trBody: {
     borderBottom: "1px solid #2a4d69",
     transition: "background-color 0.2s ease",
+    cursor: 'pointer',
   },
   td: {
     padding: "12px",
@@ -253,11 +384,11 @@ const S = {
     fontSize: "0.8rem",
     fontFamily: "monospace",
   },
-  actions: {
+  actionsContainer: {
     display: "flex",
     gap: "8px",
   },
-  actionBtn: {
+  actionButton: {
     border: "none",
     width: "32px",
     height: "32px",
@@ -268,18 +399,16 @@ const S = {
     cursor: "pointer",
     transition: "all 0.2s ease",
   },
-  confirmBtn: {
-    backgroundColor: "rgba(102, 187, 106, 0.2)",
-    color: "#66bb6a",
+  activeButton: {
+    backgroundColor: "#66bb6a",
+    color: "#fff",
   },
-  confirmBtnHover: {
-    backgroundColor: "rgba(102, 187, 106, 0.3)",
+  activeRejectButton: {
+    backgroundColor: "#ef5350",
+    color: "#fff",
   },
-  rejectBtn: {
+  rejectButton: {
     backgroundColor: "rgba(239, 83, 80, 0.2)",
     color: "#ef5350",
-  },
-  rejectBtnHover: {
-    backgroundColor: "rgba(239, 83, 80, 0.3)",
   },
 };

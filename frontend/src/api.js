@@ -1,5 +1,11 @@
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+export async function listPanoramas() {
+  const res = await fetch(`${API}/panoramas`);
+  if (!res.ok) throw new Error("Failed to load panoramas");
+  return res.json();
+}
+
 export async function listDetections(panoId) {
   const res = await fetch(`${API}/detections?pano_id=${panoId}`);
   if (!res.ok) throw new Error("Failed to load detections");

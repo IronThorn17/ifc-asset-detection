@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { listDetections, reviewDetection, convertDetectionsToAssets, listAssets } from "./api";
+import { listDetections, reviewDetection, convertDetectionsToAssets, listAssets, listPanoramas } from "./api";
 import CubeViewer from "../components/CubeViewer";
 import ImageSetPanel from "../components/ImageSetPanel";
 import BulkUploadPanel from "../components/BulkUploadPanel";
@@ -10,7 +10,7 @@ import ErrorNote from "../components/ErrorNote";
 import Spinner from "../components/Spinner";
 
 export default function App() {
-  const [panoId, setPanoId] = useState(1);
+  const [panoId, setPanoId] = useState(null);
   const [rows, setRows] = useState([]);
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -20,9 +20,23 @@ export default function App() {
   const [conversionLoading, setConversionLoading] = useState(false);
   const [minConf, setMinConf] = useState(0.05);
   const [showLabels, setShowLabels] = useState(true);
+  const [focusedDetection, setFocusedDetection] = useState(null);
 
   // Polling for detections
   const pollInterval = useRef(null);
+
+  useEffect(() => {
+    // Initial fetch of panoramas to find the latest one
+    listPanoramas()
+      .then((panos) => {
+        if (panos.length > 0) {
+          setPanoId(panos[0].id);
+        } else {
+          console.warn("No panoramas found");
+        }
+      })
+      .catch((e) => console.error("Failed to list panoramas:", e));
+  }, []);
 
   async function load(current = panoId, quiet = false) {
     if (!current) return;
@@ -117,30 +131,13 @@ export default function App() {
   }, [panoId, view]);
 
   const handleReview = async (detectionId, action) => {
+    // API call is handled by DetectionsTable
+    // We just need to refresh the data eventually to ensure consistency
     try {
-      // Optimistically update the UI
-      setRows(prevRows => 
-        prevRows.map(row => 
-          row.id === detectionId 
-            ? { ...row, review_action: action } 
-            : row
-        )
-      );
-      
-      // Call the API
-      await reviewDetection({ 
-        detection_id: detectionId, 
-        action,
-        note: `Manually ${action}ed by user`
-      });
-      
-      // Refresh the data
+      // Refresh the data silently
       await load(panoId, true);
-      
     } catch (e) {
-      console.error('Review failed:', e);
-      // Revert on error
-      await load(panoId, true);
+      console.error('Refresh failed:', e);
     }
   };
   
@@ -248,6 +245,7 @@ export default function App() {
                     detections={rows}
                     minConfidence={minConf}
                     showLabels={showLabels}
+                    focusedDetection={focusedDetection}
                   />
                 </div>
                 <div style={S.viewerControls}>
@@ -281,10 +279,11 @@ export default function App() {
                 <ErrorNote err={err} />
                 <div style={S.scrollArea}>
                   <DetectionsTable 
-                rows={rows} 
-                onReview={handleReview} 
-                onUpdate={handleDetectionsUpdate}
-              />
+                    rows={rows} 
+                    onReview={handleReview} 
+                    onUpdate={handleDetectionsUpdate}
+                    onSelect={setFocusedDetection}
+                  />
                 </div>
               </div>
             </div>

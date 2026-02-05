@@ -111,6 +111,17 @@ app.post(
   }
 );
 
+app.get("/panoramas", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, property_id, level, captured_at FROM panoramas ORDER BY captured_at DESC"
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
 app.get("/detections", async (req, res) => {
   const { pano_id } = req.query;
   try {
@@ -119,7 +130,13 @@ app.get("/detections", async (req, res) => {
               r.action as review_action,
               r.created_at as review_created_at
        FROM detections d
-       LEFT JOIN reviews r ON d.id = r.detection_id
+       LEFT JOIN LATERAL (
+         SELECT action, created_at
+         FROM reviews
+         WHERE detection_id = d.id
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) r ON true
        WHERE d.pano_id = $1 
        ORDER BY d.created_at DESC`,
       [pano_id]
@@ -157,13 +174,70 @@ app.get("/assets", async (req, res) => {
 app.post("/review", async (req, res) => {
   const { detection_id, action, new_class, note } = req.body || {};
   try {
+    // 1. Record the review
     await pool.query(
       `INSERT INTO reviews (detection_id, reviewer, action, new_class, note)
        VALUES ($1, $2, $3, $4, $5)`,
       [detection_id, "student", action, new_class || null, note || null]
     );
+
+    // 2. If confirmed, create asset (if not already exists)
+    if (action === 'confirm') {
+      // Check if asset already exists for this detection
+      const { rows: existing } = await pool.query(
+        "SELECT id FROM assets WHERE $1 = ANY(source_detection_ids)",
+        [detection_id]
+      );
+
+      if (existing.length === 0) {
+        // Fetch detection and panorama details
+        const { rows: dets } = await pool.query(
+          `SELECT d.*, p.property_id, p.lat, p.lon, p.alt
+           FROM detections d
+           JOIN panoramas p ON d.pano_id = p.id
+           WHERE d.id = $1`,
+          [detection_id]
+        );
+
+        if (dets.length > 0) {
+          const det = dets[0];
+          
+          // Create geometry
+          let geometry = null;
+          if (det.lat !== null && det.lon !== null) {
+            geometry = {
+              type: "Point",
+              coordinates: [det.lon, det.lat, det.alt || 0]
+            };
+          }
+
+          // Insert asset
+          await pool.query(
+            `INSERT INTO assets (
+              property_id, ifc_class, status, source_detection_ids, attributes_json, geometry
+            ) VALUES (
+              $1, $2, 'confirmed', ARRAY[$3]::int[], $4, ST_GeomFromGeoJSON($5)
+            )`,
+            [
+              det.property_id,
+              new_class || det.ifc_class,
+              det.id,
+              JSON.stringify({
+                confidence: det.confidence,
+                face_id: det.face_id,
+                bbox_xywh: det.bbox_xywh,
+                model_version: det.model_version
+              }),
+              geometry ? JSON.stringify(geometry) : null
+            ]
+          );
+        }
+      }
+    }
+
     res.json({ ok: true });
   } catch (e) {
+    console.error("Review error:", e);
     res.status(400).json({ ok: false, error: e.message });
   }
 });
@@ -277,4 +351,8 @@ app.get("/pano/:id/image/:face", async (req, res) => {
 });
 
 const port = process.env.PORT || process.env.API_PORT || 5000;
-app.listen(port, () => console.log(`Backend on :${port}`));
+if (require.main === module) {
+  app.listen(port, () => console.log(`Backend on :${port}`));
+}
+
+module.exports = app;
