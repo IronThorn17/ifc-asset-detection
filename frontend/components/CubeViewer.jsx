@@ -138,7 +138,7 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
       // So we likely need yaw = atan2(x, z) + PI? 
       // Or just standard LookAt logic.
       
-      viewState.current.pitch = -pitch; // Invert pitch for camera rotation?
+      viewState.current.pitch = pitch;
       viewState.current.yaw = yaw + Math.PI; // Look towards the point
       
       // Ensure pitch is clamped
@@ -287,7 +287,11 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
     if (detGroupRef.current) {
       scene.remove(detGroupRef.current);
       detGroupRef.current.traverse((obj) => {
-        if (obj.isLine) obj.geometry.dispose();
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (obj.material.map) obj.material.map.dispose();
+          obj.material.dispose();
+        }
       });
       detGroupRef.current = null;
     }
@@ -360,6 +364,9 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
 
     const threshold = typeof minConfidence === "number" ? minConfidence : 0.05;
 
+    const focusedId = focusedDetection ? (focusedDetection.id ?? null) : null;
+    const highlightColor = new THREE.Color(1, 1, 1);
+
     detections.forEach((d) => {
       const bbox = Array.isArray(d.bbox_xywh) ? d.bbox_xywh : null;
       const face = d.face_id || d.face || "front";
@@ -367,13 +374,39 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
       if (!bbox || conf < threshold) return;
       const [cx, cy, w, h] = bbox;
       const points = rectOnFace(face, cx, cy, w, h);
-      const color = colorForClass(d.ifc_class || d.label_display);
+
+      const isFocused = focusedId != null && d.id === focusedId;
+      const baseColor = colorForClass(d.ifc_class || d.label_display);
+      const color = isFocused ? highlightColor : baseColor;
       const rect = rectToLines(points, color);
       group.add(rect);
 
+      // Add a translucent fill behind the focused detection
+      if (isFocused) {
+        const fillGeom = new THREE.BufferGeometry();
+        const verts = new Float32Array([
+          points[0].x, points[0].y, points[0].z,
+          points[1].x, points[1].y, points[1].z,
+          points[2].x, points[2].y, points[2].z,
+          points[0].x, points[0].y, points[0].z,
+          points[2].x, points[2].y, points[2].z,
+          points[3].x, points[3].y, points[3].z,
+        ]);
+        fillGeom.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+        const fillMat = new THREE.MeshBasicMaterial({
+          color: highlightColor,
+          transparent: true,
+          opacity: 0.15,
+          side: THREE.DoubleSide,
+          depthTest: false,
+        });
+        const fillMesh = new THREE.Mesh(fillGeom, fillMat);
+        group.add(fillMesh);
+      }
+
       // Label sprite positioned near top-left corner (p1)
       if (showLabels) {
-        const suffix = d.review_action === "confirm" ? " ✓" : d.review_action === "reject" ? " ✗" : "";
+        const suffix = d.review_action === "confirm" ? " [OK]" : d.review_action === "reject" ? " [X]" : "";
         const labelText = `${d.ifc_class || d.label_display || "det"} ${conf.toFixed(2)}${suffix}`;
         const labelW = Math.max(60, w * size * 0.35);
         const sprite = makeLabelSprite(labelText, color, labelW);
@@ -395,7 +428,7 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
 
     scene.add(group);
     detGroupRef.current = group;
-  }, [detections]);
+  }, [detections, focusedDetection]);
 
   return (
     <div ref={mountRef} style={S.root}>
