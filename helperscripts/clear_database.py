@@ -6,8 +6,11 @@ TABLES = [
     "reviews",
     "assets",
     "panoramas",
-    "properties"
+    "properties",
 ]
+
+LOCK_TIMEOUT_MS = 5000
+
 
 def clear_database():
     try:
@@ -16,31 +19,37 @@ def clear_database():
             user="postgres",
             password="postgres",
             host="localhost",
-            port="5432"
+            port="5432",
+            connect_timeout=10,
         )
+        conn.autocommit = False
         cur = conn.cursor()
         print("Connected to database successfully.")
+
+        cur.execute(f"SET lock_timeout = '{LOCK_TIMEOUT_MS}ms';")
+
         print("Clearing database...")
 
-        # Disable foreign key checks temporarily
-        cur.execute("SET session_replication_role = 'replica';")
-
-        # Validate table names to prevent SQL injection
-        allowed_tables = {"detections", "reviews", "assets", "panoramas", "properties"}
-        for table in TABLES:
-            if table not in allowed_tables:
-                raise ValueError(f"Invalid table name: {table}")
-            cur.execute(f'TRUNCATE TABLE {table} RESTART IDENTITY CASCADE;')
-            print(f"Cleared {table}")
-
-        # Re-enable foreign key checks
-        cur.execute("SET session_replication_role = 'origin';")
+        table_list = ", ".join(TABLES)
+        cur.execute(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE;")
 
         conn.commit()
         cur.close()
         conn.close()
+
+        for table in TABLES:
+            print(f"  Cleared {table}")
         print("Database cleared successfully.")
         return True
+
+    except psycopg2.errors.LockNotAvailable:
+        print(
+            "Error: Could not acquire locks within the timeout. "
+            "Another connection (e.g. the running app or Docker container) is holding "
+            "locks on one or more tables.\n"
+            "Stop the app/container and try again, or increase LOCK_TIMEOUT_MS."
+        )
+        return False
     except Exception as e:
         print(f"Error clearing database: {e}")
         return False
