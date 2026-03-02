@@ -1,15 +1,29 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-export default function CubeViewer({ faces = {}, detections = [], minConfidence = 0.05, showLabels = true, focusedDetection = null }) {
+export default function CubeViewer({
+  faces = {},
+  detections = [],
+  minConfidence = 0.05,
+  showLabels = true,
+  focusedDetection = null,
+  onDetectionClick,
+}) {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
   const rendererRef = useRef(null);
   const detGroupRef = useRef(null);
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const onDetClickRef = useRef(onDetectionClick);
   
   // View state refs to allow access from multiple effects
   const viewState = useRef({ yaw: 0, pitch: 0 });
+
+  // Keep latest callback
+  useEffect(() => {
+    onDetClickRef.current = onDetectionClick;
+  }, [onDetectionClick]);
 
   // Helper to map normalized bbox to cube face coordinates
   // Returns [p1, p2, p3, p4] (clockwise from top-left)
@@ -207,17 +221,56 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
     directionalLight.position.set(1, 1, 1);
     scene.add(directionalLight);
 
-    // Mouse look controls
+    // Mouse look controls + click selection
     let isDown = false;
     let lx = 0, ly = 0;
+    let moveDistSq = 0;
     
-    const onDown = (e) => { isDown = true; lx = e.clientX; ly = e.clientY; };
-    const onUp = () => { isDown = false; };
+    const onDown = (e) => {
+      isDown = true;
+      lx = e.clientX;
+      ly = e.clientY;
+      moveDistSq = 0;
+    };
+    const onUp = (e) => {
+      if (!isDown) return;
+      isDown = false;
+
+      // Treat as click when mouse did not move much
+      if (
+        moveDistSq < 4 &&
+        detGroupRef.current &&
+        cameraRef.current &&
+        rendererRef.current &&
+        onDetClickRef.current
+      ) {
+        const renderer = rendererRef.current;
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        const raycaster = raycasterRef.current;
+        raycaster.setFromCamera(mouse, cameraRef.current);
+        const group = detGroupRef.current;
+        const intersects = raycaster.intersectObject(group, true);
+        if (intersects && intersects.length > 0) {
+          let obj = intersects[0].object;
+          while (obj && !obj.userData?.detection) {
+            obj = obj.parent;
+          }
+          if (obj && obj.userData?.detection) {
+            onDetClickRef.current(obj.userData.detection);
+          }
+        }
+      }
+    };
     const onMove = (e) => {
       if (!isDown) return;
       const dx = e.clientX - lx;
       const dy = e.clientY - ly;
       lx = e.clientX; ly = e.clientY;
+      moveDistSq += dx * dx + dy * dy;
       
       viewState.current.yaw -= dx * 0.0025; 
       viewState.current.pitch -= dy * 0.0025;
@@ -375,11 +428,15 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
       const [cx, cy, w, h] = bbox;
       const points = rectOnFace(face, cx, cy, w, h);
 
+      // Container group for this detection's visuals (lines, fill, label)
+      const detGroup = new THREE.Group();
+      detGroup.userData.detection = d;
+
       const isFocused = focusedId != null && d.id === focusedId;
       const baseColor = colorForClass(d.ifc_class || d.label_display);
       const color = isFocused ? highlightColor : baseColor;
       const rect = rectToLines(points, color);
-      group.add(rect);
+      detGroup.add(rect);
 
       // Add a translucent fill behind the focused detection
       if (isFocused) {
@@ -401,7 +458,7 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
           depthTest: false,
         });
         const fillMesh = new THREE.Mesh(fillGeom, fillMat);
-        group.add(fillMesh);
+        detGroup.add(fillMesh);
       }
 
       // Label sprite positioned near top-left corner (p1)
@@ -422,8 +479,9 @@ export default function CubeViewer({ faces = {}, detections = [], minConfidence 
           case "bottom": sprite.position.set(p1.x, -499 + nudge, p1.z); break;
           default: sprite.position.set(p1.x, p1.y + nudge, 499 - nudge);
         }
-        group.add(sprite);
+        detGroup.add(sprite);
       }
+      group.add(detGroup);
     });
 
     scene.add(group);
@@ -465,6 +523,7 @@ const S = {
     padding: "10px 15px",
     borderRadius: "8px",
     backdropFilter: "blur(5px)",
+    pointerEvents: "none",
   },
   controlsInfo: {
     display: "flex",

@@ -1,16 +1,76 @@
 import { useState, useEffect, useMemo } from 'react';
-import { reviewDetection } from "../src/api";
+import { reviewDetection, updateDetectionBbox } from "../src/api";
 
-export default function DetectionsTable({ rows: initialRows, onReview, onUpdate, onSelect }) {
+export default function DetectionsTable({ rows: initialRows, onReview, onUpdate, onSelect, editDetectionId }) {
   const [rows, setRows] = useState(initialRows || []);
   const [loadingId, setLoadingId] = useState(null);
   const [error, setError] = useState(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [sortBy, setSortBy] = useState("date_desc");
+  const [editingBboxId, setEditingBboxId] = useState(null);
+  const [bboxDraft, setBboxDraft] = useState([0.5, 0.5, 0.2, 0.2]);
 
   useEffect(() => {
     setRows(initialRows || []);
   }, [initialRows]);
+
+  // If a detection id is provided from the 3D viewer, open its bbox editor
+  useEffect(() => {
+    if (!editDetectionId || !rows || !rows.length) return;
+    const target = rows.find((r) => r.id === editDetectionId);
+    if (!target) return;
+    startEditBbox(target);
+    if (onSelect) onSelect(target);
+  }, [editDetectionId, rows]);
+
+  const startEditBbox = (row) => {
+    setEditingBboxId(row.id);
+    const current = Array.isArray(row.bbox_xywh) && row.bbox_xywh.length === 4
+      ? row.bbox_xywh
+      : [0.5, 0.5, 0.2, 0.2];
+    setBboxDraft(current);
+  };
+
+  const handleBboxChange = (index, value) => {
+    const num = Number(value);
+    const safe = Number.isFinite(num) ? Math.max(0, Math.min(1, num)) : 0;
+    setBboxDraft((prev) => {
+      const next = [...prev];
+      next[index] = safe;
+      return next;
+    });
+  };
+
+  const saveBbox = async (detectionId) => {
+    try {
+      setLoadingId(detectionId);
+      setError(null);
+      const payload = Array.isArray(bboxDraft) && bboxDraft.length === 4
+        ? bboxDraft
+        : [0.5, 0.5, 0.2, 0.2];
+
+      const result = await updateDetectionBbox(detectionId, payload);
+      const updated = result?.detection || {};
+
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === detectionId ? { ...r, bbox_xywh: updated.bbox_xywh || payload } : r
+        )
+      );
+      if (onUpdate) {
+        const nextRows = rows.map((r) =>
+          r.id === detectionId ? { ...r, bbox_xywh: updated.bbox_xywh || payload } : r
+        );
+        onUpdate(nextRows);
+      }
+      setEditingBboxId(null);
+    } catch (err) {
+      console.error("BBox update failed:", err);
+      setError(`Failed to update bounding box: ${err.message}`);
+    } finally {
+      setLoadingId(null);
+    }
+  };
 
   const handleReview = async (detectionId, action) => {
     try {
@@ -173,7 +233,50 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
                 </td>
                 <td style={S.td}>{r.face_id}</td>
                 <td style={S.td}>
-                  {Array.isArray(r.bbox_xywh) ? (
+                  {editingBboxId === r.id ? (
+                    <div style={S.bboxEditor}>
+                      {["cx", "cy", "w", "h"].map((label, idx) => (
+                        <label key={label} style={S.bboxField}>
+                          <span>{label}</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={
+                              bboxDraft[idx]?.toFixed
+                                ? bboxDraft[idx].toFixed(2)
+                                : bboxDraft[idx]
+                            }
+                            onChange={(e) => handleBboxChange(idx, e.target.value)}
+                            style={S.bboxInput}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </label>
+                      ))}
+                      <div style={S.bboxButtons}>
+                        <button
+                          style={S.bboxSave}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            saveBbox(r.id);
+                          }}
+                          disabled={loadingId === r.id}
+                        >
+                          Save
+                        </button>
+                        <button
+                          style={S.bboxCancel}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingBboxId(null);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : Array.isArray(r.bbox_xywh) ? (
                     <span style={S.positionBadge}>
                       [{r.bbox_xywh.map(n => n.toFixed(2)).join(', ')}]
                     </span>
@@ -231,6 +334,21 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
                       title="Reject detection"
                     >
                       <i className="fas fa-times"></i>
+                    </button>
+                    <button
+                      style={{
+                        ...S.actionButton,
+                        backgroundColor: "rgba(76, 175, 80, 0.15)",
+                        color: "#81c784"
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEditBbox(r);
+                      }}
+                      disabled={loadingId === r.id}
+                      title="Edit bounding box"
+                    >
+                      <i className="fas fa-vector-square"></i>
                     </button>
                   </div>
                 </td>
@@ -410,5 +528,49 @@ const S = {
   rejectButton: {
     backgroundColor: "rgba(239, 83, 80, 0.2)",
     color: "#ef5350",
+  },
+  bboxEditor: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  bboxField: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "6px",
+    fontSize: "0.8rem",
+  },
+  bboxInput: {
+    width: "70px",
+    backgroundColor: "rgba(13, 27, 42, 0.8)",
+    border: "1px solid #2a4d69",
+    color: "#e0f7fa",
+    padding: "2px 4px",
+    borderRadius: "4px",
+    fontSize: "0.8rem",
+  },
+  bboxButtons: {
+    display: "flex",
+    gap: "6px",
+    marginTop: "4px",
+  },
+  bboxSave: {
+    padding: "3px 8px",
+    borderRadius: "4px",
+    border: "none",
+    backgroundColor: "#4caf50",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: "0.8rem",
+  },
+  bboxCancel: {
+    padding: "3px 8px",
+    borderRadius: "4px",
+    border: "1px solid #2a4d69",
+    backgroundColor: "transparent",
+    color: "#90a4ae",
+    cursor: "pointer",
+    fontSize: "0.8rem",
   },
 };

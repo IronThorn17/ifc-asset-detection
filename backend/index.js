@@ -147,6 +147,47 @@ app.get("/detections", async (req, res) => {
   }
 });
 
+// Update normalized bounding box for a single detection
+app.post("/detection/:id/bbox", async (req, res) => {
+  const id = Number(req.params.id);
+  const { bbox_xywh } = req.body || {};
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ ok: false, error: "Invalid detection id" });
+  }
+
+  if (!Array.isArray(bbox_xywh) || bbox_xywh.length !== 4) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "bbox_xywh must be an array of four numbers" });
+  }
+
+  try {
+    const cleaned = bbox_xywh.map((v) => {
+      const num = Number(v);
+      if (!Number.isFinite(num)) {
+        throw new Error("bbox values must be finite numbers");
+      }
+      // clamp to [0, 1] since these are normalized coordinates
+      return Math.max(0, Math.min(1, num));
+    });
+
+    const { rows } = await pool.query(
+      "UPDATE detections SET bbox_xywh = $2 WHERE id = $1 RETURNING *",
+      [id, cleaned]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ ok: false, error: "Detection not found" });
+    }
+
+    res.json({ ok: true, detection: rows[0] });
+  } catch (e) {
+    console.error("Update bbox error:", e);
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
 app.get("/assets", async (req, res) => {
   const { property_id } = req.query;
   try {

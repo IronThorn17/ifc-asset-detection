@@ -21,6 +21,7 @@ export default function App() {
   const [minConf, setMinConf] = useState(0.05);
   const [showLabels, setShowLabels] = useState(true);
   const [focusedDetection, setFocusedDetection] = useState(null);
+  const [editDetectionId, setEditDetectionId] = useState(null);
 
   // Polling for detections
   const pollInterval = useRef(null);
@@ -246,6 +247,12 @@ export default function App() {
                     minConfidence={minConf}
                     showLabels={showLabels}
                     focusedDetection={focusedDetection}
+                    onDetectionClick={(det) => {
+                      if (!det) return;
+                      setFocusedDetection(det);
+                      // Ask table to open bbox editor for this detection
+                      setEditDetectionId(det.id ?? null);
+                    }}
                   />
                 </div>
                 <div style={S.viewerControls}>
@@ -282,7 +289,13 @@ export default function App() {
                     rows={rows} 
                     onReview={handleReview} 
                     onUpdate={handleDetectionsUpdate}
-                    onSelect={setFocusedDetection}
+                    onSelect={(det) => {
+                      setFocusedDetection(det);
+                      // If user selects from table, don't force an edit panel
+                      setEditDetectionId(null);
+                    }}
+                    // When coming from 3D viewer, this id will cause bbox editor to open
+                    editDetectionId={editDetectionId}
                   />
                 </div>
               </div>

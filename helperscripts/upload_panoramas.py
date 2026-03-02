@@ -196,7 +196,8 @@ def insert_pano(cur, property_id, pano_id, face_bytes, metadata=None):
             "alt": metadata["alt"],
             "timestamp": metadata["captured_at"].isoformat() if metadata["captured_at"] else None,
             "property_id": property_id,
-            "level": metadata["level"]
+            "level": metadata["level"],
+            "source_pano_id": str(pano_id),
         }
     }
 
