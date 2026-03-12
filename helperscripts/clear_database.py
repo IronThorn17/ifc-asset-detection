@@ -15,13 +15,13 @@ LOCK_TIMEOUT_MS = 5000
 def clear_database():
     try:
         conn = psycopg2.connect(
-            dbname="ifc_assets",
-            user="postgres",
-            password="postgres",
-            host="localhost",
-            port="5432",
-            connect_timeout=10,
-        )
+        dbname="ifc_assets",
+        user="postgres",
+        password="postgres",
+        host="db",
+        port="5432",
+    )
+
         conn.autocommit = False
         cur = conn.cursor()
         print("Connected to database successfully.")

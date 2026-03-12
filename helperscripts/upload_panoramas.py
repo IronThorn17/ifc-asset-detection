@@ -15,7 +15,7 @@ DB_CONFIG = {
     "dbname": "ifc_assets",
     "user": "postgres",
     "password": "postgres",
-    "host": "localhost",
+    "host": "db",
     "port": "5432",
 }
 

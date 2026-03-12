@@ -4,8 +4,8 @@ from ultralytics import YOLO
 
 DB_URL = os.getenv("DB_URL", "postgres://postgres:postgres@db:5432/ifc_assets")
 POLL_SECS = float(os.getenv("POLL_SECS", "5"))
-MODEL_PATH = "model/best.pt"
-MODEL_VERSION = "best.pt"
+MODEL_PATH = "model/20260311.pt"
+MODEL_VERSION = "20260311.pt"
 model = YOLO(MODEL_PATH)
 
 # Load IFC class mapping
