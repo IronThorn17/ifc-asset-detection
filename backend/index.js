@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const { pool } = require("./db");
 const multer = require("multer");
+const { exec } = require("child_process");
+
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -390,6 +392,39 @@ app.get("/pano/:id/image/:face", async (req, res) => {
     res.status(500).send("Server error");
   }
 });
+
+app.post("/ml/export-dataset", async (req, res) => {
+  try {
+    console.log("Starting dataset export...");
+
+    exec(
+      "docker exec ifc_ml python /app/export_database.py",
+      (error, stdout, stderr) => {
+
+        if (error) {
+          console.error("Export error:", error);
+          return res.status(500).json({
+            ok: false,
+            error: stderr || error.message
+          });
+        }
+
+        console.log("Export output:", stdout);
+
+        res.json({
+          ok: true,
+          message: "Dataset exported successfully",
+          output: stdout
+        });
+      }
+    );
+
+  } catch (e) {
+    console.error("Export endpoint error:", e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 
 const port = process.env.PORT || process.env.API_PORT || 5000;
 if (require.main === module) {

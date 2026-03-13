@@ -12,6 +12,15 @@ export async function listDetections(panoId) {
   return res.json();
 }
 
+export async function exportDatabase() {
+  const res = await fetch(`${API}/ml/export-dataset`,{
+    method: "POST"
+  });
+  
+  if (!res.ok) throw new Error("Failed to export");
+  return res.json();
+}
+
 export async function updateDetectionBbox(detectionId, bbox_xywh) {
   const res = await fetch(`${API}/detection/${detectionId}/bbox`, {
     method: "POST",
@@ -93,3 +102,4 @@ export async function ingestPanoramaWithFile({
   }
   return res.json();
 }
+

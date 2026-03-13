@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { reviewDetection, updateDetectionBbox } from "../src/api";
+import { reviewDetection, updateDetectionBbox, exportDatabase } from "../src/api";
 
 export default function DetectionsTable({ rows: initialRows, onReview, onUpdate, onSelect, editDetectionId }) {
   const [rows, setRows] = useState(initialRows || []);
@@ -170,6 +170,10 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
       <div style={S.controls}>
         <div style={S.controlGroup}>
           <label style={S.label}>Status:</label>
+          <button onClick={e => exportDatabase()}>
+          Export YOLO Dataset
+          </button>
+
           <select 
             value={filterStatus} 
             onChange={e => setFilterStatus(e.target.value)}
