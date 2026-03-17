@@ -45,34 +45,28 @@ export default function BulkUploadPanel() {
 
   async function uploadAll() {
     if (!canUploadAll()) return;
+    const setsToUpload = sets.filter((st) => Object.keys(st.files).length > 0);
     try {
       setUploading(true);
-      setNote("Uploading all sets...");
+      setNote(`Uploading ${setsToUpload.length} set(s)...`);
       let success = 0;
       let errors = 0;
-      for (const st of sets) {
-        // Skip sets with no files
-        if (Object.keys(st.files).length === 0) continue;
-        
+      for (const st of setsToUpload) {
         try {
           const formData = new FormData();
           for (const face of FACE_KEYS) {
-            if (st.files[face]) {
-              formData.append(face, st.files[face]);
-            }
+            if (st.files[face]) formData.append(face, st.files[face]);
           }
           Object.entries(st.coords).forEach(([k, v]) => {
-            if (v !== undefined && v !== null && v !== "") {
-              formData.append(k, v);
-            }
+            if (v !== undefined && v !== null && v !== "") formData.append(k, v);
           });
-          
+
           const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
           const res = await fetch(`${API_URL}/ingest/pano-set`, {
             method: "POST",
             body: formData,
           });
-          
+
           const data = await res.json();
           if (data.ok) {
             success++;
@@ -85,16 +79,18 @@ export default function BulkUploadPanel() {
           console.error(`Network error for set: ${e.message}`);
         }
       }
-      if (errors > 0) {
-        setNote(`Uploaded ${success}/${sets.length} sets (${errors} failed)`);
+
+      if (errors === 0) {
+        setSets([newEmptySet()]);
+        setNote(`Uploaded ${success}/${setsToUpload.length} sets successfully`);
+        setTimeout(() => setNote(""), 5000);
       } else {
-        setNote(`Uploaded ${success}/${sets.length} sets successfully`);
+        setNote(`Uploaded ${success}/${setsToUpload.length} sets (${errors} failed)`);
       }
     } catch (e) {
       setNote(`Error: ${e.message}`);
     } finally {
       setUploading(false);
-      setTimeout(() => setNote(""), 5000);
     }
   }
 

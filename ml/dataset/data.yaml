@@ -1,0 +1,5 @@
+path: /app/dataset
+train: images/train
+val: images/val
+nc: 17
+names: ['ifcDoor', 'ifcSign', 'ifcWall', 'ifcFurniture', 'ifcLightFixture', 'ifcAirTerminal', 'ifcComputer', 'ifcSwitchingDevice', 'ifcSensor', 'ifcWindow', 'ifcAudioVisualAppliance', 'ifcElectricalOutlet', 'ifcSanitaryTerminal', 'ifcEquipmentElement', 'ifcFurnishingElement', 'ifcDuctSegment', 'ifcController']

@@ -161,11 +161,12 @@ def build_dataset(conn, csv_ids, output_dir, val_ratio=0.2):
 def write_data_yaml(output_dir):
     path = os.path.join(output_dir, "data.yaml")
     abs_out = os.path.abspath(output_dir)
+    names_yaml = "[" + ", ".join(CLASS_NAMES) + "]"
     content = f"""# Auto-generated for scsu export
 train: {abs_out}/images/train
 val: {abs_out}/images/val
 nc: {len(CLASS_NAMES)}
-names: {CLASS_NAMES}
+names: {names_yaml}
 """
     with open(path, "w") as f:
         f.write(content)

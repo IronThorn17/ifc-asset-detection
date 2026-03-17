@@ -12,6 +12,19 @@ export async function listDetections(panoId) {
   return res.json();
 }
 
+export async function triggerRetraining() {
+  const res = await fetch(`${API}/ml/retrain`, { method: "POST" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to start retraining");
+  return data;
+}
+
+export async function getRetrainStatus() {
+  const res = await fetch(`${API}/ml/retrain/status`);
+  if (!res.ok) throw new Error("Failed to get retrain status");
+  return res.json();
+}
+
 export async function exportDatabase() {
   const res = await fetch(`${API}/ml/export-dataset`,{
     method: "POST"

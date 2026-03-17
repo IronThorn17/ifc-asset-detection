@@ -7,8 +7,10 @@ import urllib.request
 import zipfile
 import tempfile
 import shutil
-import psycopg2
+import psycopg
 from tqdm import tqdm
+
+COMMIT_EVERY = 10
 
 # ---------- CONFIG ----------
 DB_CONFIG = {
@@ -33,12 +35,12 @@ VALID_DIRECTIONS = {"f", "b", "l", "r", "t", "d", "u"}
 
 
 def connect_db():
-    return psycopg2.connect(
+    return psycopg.connect(
         dbname=DB_CONFIG["dbname"],
         user=DB_CONFIG["user"],
         password=DB_CONFIG["password"],
         host=DB_CONFIG["host"],
-        port=DB_CONFIG["port"]
+        port=DB_CONFIG["port"],
     )
 
 
@@ -282,7 +284,7 @@ def upload_panoramas(base_dir, csv_path=None):
         success_count = 0
         error_count = 0
 
-        for pano_id, faces in tqdm(grouped.items(), desc="Uploading panoramas"):
+        for i, (pano_id, faces) in enumerate(tqdm(grouped.items(), desc="Uploading panoramas"), 1):
             try:
                 face_bytes = {k: read_image_bytes(v) for k, v in faces.items()}
                 metadata = csv_metadata.get(pano_id)
@@ -294,6 +296,9 @@ def upload_panoramas(base_dir, csv_path=None):
             except Exception as e:
                 print(f"Error uploading panorama {pano_id}: {e}")
                 error_count += 1
+
+            if i % COMMIT_EVERY == 0:
+                conn.commit()
 
         conn.commit()
         cur.close()

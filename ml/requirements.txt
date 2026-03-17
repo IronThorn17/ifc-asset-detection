@@ -2,3 +2,4 @@ numpy
 psycopg[binary]
 opencv-python-headless
 ultralytics
+flask

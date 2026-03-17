@@ -49,15 +49,11 @@ export default function AssetsTable({ assets }) {
             let category = "Unknown";
             let description = "";
             if (asset.attributes_json) {
-              try {
-                const attrs = JSON.parse(asset.attributes_json);
-                if (attrs.sphere_coords_json) {
-                  category = attrs.sphere_coords_json.category || "Unknown";
-                  description = attrs.sphere_coords_json.description || "";
-                }
-              } catch (e) {
-                console.error("Error parsing asset attributes:", e);
-              }
+              const attrs = typeof asset.attributes_json === "string"
+                ? JSON.parse(asset.attributes_json)
+                : asset.attributes_json;
+              category = attrs.category || "Unknown";
+              description = attrs.description || "";
             }
             
             return (

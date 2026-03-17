@@ -1,10 +1,14 @@
-import os, time, psycopg, cv2, json
+import os, time, threading, psycopg, cv2, json
 import numpy as np
 from ultralytics import YOLO
+import shared
+import server as retrain_server
 
 DB_URL = os.getenv("DB_URL", "postgres://postgres:postgres@db:5432/ifc_assets")
 POLL_SECS = float(os.getenv("POLL_SECS", "5"))
-MODEL_PATH = "model/20260311.pt"
+_PREFERRED_MODEL = "model/best.pt"
+_FALLBACK_MODEL = "model/20260311.pt"
+MODEL_PATH = _PREFERRED_MODEL if os.path.isfile(_PREFERRED_MODEL) else _FALLBACK_MODEL
 MODEL_VERSION = "20260311.pt"
 model = YOLO(MODEL_PATH)
 
@@ -169,11 +173,17 @@ def process_pano(conn, pano_id):
     print(f"[ML] Completed pano {pano_id}")
 
 def main():
+    threading.Thread(target=retrain_server.start, daemon=True).start()
     print("ML detection service running...")
     print(f"Loaded {len(IFC_CLASS_MAPPING)} IFC class mappings")
 
     with psycopg.connect(DB_URL) as conn:
         while True:
+            if shared.reload_model.is_set():
+                shared.reload_model.clear()
+                model = YOLO(MODEL_PATH)
+                print("[ML] Model reloaded after retraining")
+
             unprocessed_ids = get_unprocessed_panos(conn)
 
             if unprocessed_ids:

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { listDetections, reviewDetection, convertDetectionsToAssets, listAssets, listPanoramas } from "./api";
+import { listDetections, reviewDetection, convertDetectionsToAssets, listAssets, listPanoramas, triggerRetraining, getRetrainStatus } from "./api";
 import CubeViewer from "../components/CubeViewer";
 import ImageSetPanel from "../components/ImageSetPanel";
 import BulkUploadPanel from "../components/BulkUploadPanel";
@@ -11,6 +11,7 @@ import Spinner from "../components/Spinner";
 
 export default function App() {
   const [panoId, setPanoId] = useState(null);
+  const [panos, setPanos] = useState([]);
   const [rows, setRows] = useState([]);
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -18,23 +19,23 @@ export default function App() {
   const [view, setView] = useState("review"); // 'review' | 'upload' | 'assets'
   const [viewerFaces, setViewerFaces] = useState(null);
   const [conversionLoading, setConversionLoading] = useState(false);
+  const [convertNote, setConvertNote] = useState("");
   const [minConf, setMinConf] = useState(0.05);
   const [showLabels, setShowLabels] = useState(true);
   const [focusedDetection, setFocusedDetection] = useState(null);
   const [editDetectionId, setEditDetectionId] = useState(null);
+  const [retrain, setRetrain] = useState({ status: "idle", phase: null, error: null });
 
-  // Polling for detections
   const pollInterval = useRef(null);
+  const retrainPollRef = useRef(null);
 
   useEffect(() => {
     // Initial fetch of panoramas to find the latest one
     listPanoramas()
-      .then((panos) => {
-        if (panos.length > 0) {
-          setPanoId(panos[0].id);
-        } else {
-          console.warn("No panoramas found");
-        }
+      .then((list) => {
+        setPanos(list);
+        if (list.length > 0) setPanoId(list[0].id);
+        else console.warn("No panoramas found");
       })
       .catch((e) => console.error("Failed to list panoramas:", e));
   }, []);
@@ -108,9 +109,11 @@ export default function App() {
     }
   }
 
-  // Stop polling when component unmounts
   useEffect(() => {
-    return () => clearInterval(pollInterval.current);
+    return () => {
+      clearInterval(pollInterval.current);
+      clearInterval(retrainPollRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -147,16 +150,39 @@ export default function App() {
     setRows(updatedDetections);
   };
 
+  async function handleRetrain() {
+    try {
+      await triggerRetraining();
+      setRetrain({ status: "running", phase: "exporting", error: null });
+
+      clearInterval(retrainPollRef.current);
+      retrainPollRef.current = setInterval(async () => {
+        try {
+          const s = await getRetrainStatus();
+          setRetrain({ status: s.status, phase: s.phase, error: s.error });
+          if (s.status === "done" || s.status === "error") {
+            clearInterval(retrainPollRef.current);
+          }
+        } catch {
+          clearInterval(retrainPollRef.current);
+        }
+      }, 4000);
+    } catch (e) {
+      setRetrain({ status: "error", phase: null, error: e.message });
+    }
+  }
+
   async function handleConvertToAssets() {
     if (!panoId) return;
-    
     try {
       setConversionLoading(true);
+      setConvertNote("");
       const result = await convertDetectionsToAssets(panoId);
-      alert(result.message || "Successfully converted detections to assets!");
-      await load(); // Reload to show updated data
+      setConvertNote(result.message || "Converted detections to assets");
+      setTimeout(() => setConvertNote(""), 5000);
+      await load();
     } catch (e) {
-      alert(e.message || "Failed to convert detections to assets");
+      setConvertNote(e.message || "Failed to convert detections to assets");
     } finally {
       setConversionLoading(false);
     }
@@ -202,6 +228,7 @@ export default function App() {
               <PanoJump
                 panoId={panoId}
                 setPanoId={setPanoId}
+                panos={panos}
                 onLoad={() => load()}
                 loading={loading}
               />
@@ -224,8 +251,30 @@ export default function App() {
               )}
             </>
           )}
+          <button
+            onClick={handleRetrain}
+            disabled={retrain.status === "running"}
+            style={{
+              ...S.retrainBtn,
+              ...(retrain.status === "error" ? S.retrainBtnError : {}),
+              ...(retrain.status === "done" ? S.retrainBtnDone : {}),
+            }}
+            title={retrain.error || undefined}
+          >
+            <i className="fas fa-brain"></i>
+            {retrain.status === "running"
+              ? retrain.phase === "training" ? "Training..." : "Exporting..."
+              : retrain.status === "done"
+              ? "Retrain Done"
+              : retrain.status === "error"
+              ? "Retrain Failed"
+              : "Retrain Model"}
+          </button>
           <Spinner show={loading || conversionLoading} />
         </div>
+        {convertNote && (
+          <div style={S.convertNote}>{convertNote}</div>
+        )}
       </div>
 
       {/* Main Content */}
@@ -383,12 +432,14 @@ const S = {
     overflow: "hidden", // Keep viewport fixed; inner panels manage scroll
   },
   header: {
-    padding: "20px 30px",
+    padding: "12px 30px",
     backgroundColor: "rgba(13, 27, 42, 0.9)",
     borderBottom: "1px solid #2a4d69",
     display: "flex",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: "6px",
     boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
   },
   headerControls: {
@@ -443,6 +494,33 @@ const S = {
     gap: "8px",
     fontWeight: "600",
     transition: "all 0.3s ease",
+  },
+  retrainBtn: {
+    backgroundColor: "#7b5ea7",
+    color: "white",
+    border: "none",
+    padding: "8px 16px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    fontWeight: "600",
+    transition: "all 0.3s ease",
+  },
+  retrainBtnError: {
+    backgroundColor: "#c62828",
+  },
+  retrainBtnDone: {
+    backgroundColor: "#2e7d32",
+  },
+  convertNote: {
+    fontSize: "0.85rem",
+    color: "#bbdefb",
+    padding: "4px 12px",
+    backgroundColor: "rgba(30, 58, 95, 0.6)",
+    borderRadius: "4px",
+    alignSelf: "center",
   },
   mainContent: {
     display: "grid",

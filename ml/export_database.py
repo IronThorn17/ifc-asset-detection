@@ -1,9 +1,8 @@
 import os
+import hashlib
 import psycopg
 import cv2
 import numpy as np
-import json
-import random
 
 DB_URL = os.getenv("DB_URL")
 
@@ -82,39 +81,68 @@ def main():
                         cv2.IMREAD_COLOR
                     )
 
-                    h, w = img.shape[:2]
-
                     name = f"pano_{pano_id}_{face}"
 
-                    img_path = f"{OUT}/images/train/{name}.jpg"
-                    lbl_path = f"{OUT}/labels/train/{name}.txt"
+                    split = "val" if int(hashlib.md5(name.encode()).hexdigest(), 16) % 10 < 2 else "train"
 
-                    cv2.imwrite(img_path, img)
+                    img_path = f"{OUT}/images/{split}/{name}.jpg"
+                    lbl_path = f"{OUT}/labels/{split}/{name}.txt"
 
                     with conn.cursor() as dcur:
 
                         dcur.execute("""
-                        SELECT ifc_class, bbox_xywh
-                        FROM detections
-                        WHERE pano_id = %s
-                        AND face_id = %s
+                        SELECT
+                            COALESCE(r.new_class, d.ifc_class) AS effective_class,
+                            d.bbox_xywh
+                        FROM detections d
+                        LEFT JOIN LATERAL (
+                            SELECT action, new_class
+                            FROM reviews
+                            WHERE detection_id = d.id
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                        ) r ON true
+                        WHERE d.pano_id = %s
+                        AND d.face_id = %s
+                        AND (r.action IS NULL OR r.action != 'reject')
                         """, (pano_id, face))
 
                         detections = dcur.fetchall()
+
+                    if not detections:
+                        continue
+
+                    cv2.imwrite(img_path, img)
 
                     with open(lbl_path, "w") as f:
 
                         for cls, bbox in detections:
 
+                            if cls not in CLASS_MAP:
+                                continue
+
                             x, y, bw, bh = bbox
-
-                            
-
                             class_id = CLASS_MAP[cls]
 
                             f.write(
                                 f"{class_id} {x} {y} {bw} {bh}\n"
                             )
+
+    write_data_yaml(OUT, CLASS_MAP)
+
+
+def write_data_yaml(out_dir, class_map):
+    names = [k for k, v in sorted(class_map.items(), key=lambda x: x[1])]
+    names_yaml = "[" + ", ".join(names) + "]"
+    lines = [
+        f"path: {out_dir}",
+        "train: images/train",
+        "val: images/val",
+        f"nc: {len(names)}",
+        f"names: {names_yaml}",
+    ]
+    with open(f"{out_dir}/data.yaml", "w") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 if __name__ == "__main__":

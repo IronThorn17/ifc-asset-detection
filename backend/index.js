@@ -3,6 +3,42 @@ const cors = require("cors");
 const { pool } = require("./db");
 const multer = require("multer");
 const { exec } = require("child_process");
+const http = require("http");
+
+const ML_HOST = process.env.ML_HOST || "ml";
+const ML_PORT = 5001;
+
+function mlPost(path) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { hostname: ML_HOST, port: ML_PORT, path, method: "POST",
+        headers: { "Content-Length": 0 } },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => {
+          try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+          catch { resolve({ status: res.statusCode, body: data }); }
+        });
+      }
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+function mlGet(path) {
+  return new Promise((resolve, reject) => {
+    http.get({ hostname: ML_HOST, port: ML_PORT, path }, (res) => {
+      let data = "";
+      res.on("data", (c) => (data += c));
+      res.on("end", () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, body: data }); }
+      });
+    }).on("error", reject);
+  });
+}
 
 
 const upload = multer({
@@ -269,7 +305,8 @@ app.post("/review", async (req, res) => {
                 confidence: det.confidence,
                 face_id: det.face_id,
                 bbox_xywh: det.bbox_xywh,
-                model_version: det.model_version
+                model_version: det.model_version,
+                ...(det.sphere_coords_json || {}),
               }),
               geometry ? JSON.stringify(geometry) : null
             ]
@@ -340,7 +377,8 @@ app.post("/convert-to-assets", async (req, res) => {
             confidence: detection.confidence,
             face_id: detection.face_id,
             bbox_xywh: detection.bbox_xywh,
-            model_version: detection.model_version
+            model_version: detection.model_version,
+            ...(detection.sphere_coords_json || {}),
           }),
           geometry ? JSON.stringify(geometry) : null
         ]
@@ -390,6 +428,24 @@ app.get("/pano/:id/image/:face", async (req, res) => {
   } catch (e) {
     console.error("Error fetching panorama image:", e);
     res.status(500).send("Server error");
+  }
+});
+
+app.post("/ml/retrain", async (req, res) => {
+  try {
+    const { status, body } = await mlPost("/retrain");
+    res.status(status).json(body);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get("/ml/retrain/status", async (req, res) => {
+  try {
+    const { status, body } = await mlGet("/retrain/status");
+    res.status(status).json(body);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
