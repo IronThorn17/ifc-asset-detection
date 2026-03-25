@@ -1,5 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { reviewDetection, updateDetectionBbox } from "../src/api";
+import { reviewDetection, updateDetectionBbox, updateDetectionClass } from "../src/api";
+
+const IFC_CLASSES = [
+  "ifcAirTerminal", "ifcAudioVisualAppliance", "ifcComputer", "ifcController",
+  "ifcDoor", "ifcDuctSegment", "ifcElectricalOutlet", "ifcEquipmentElement",
+  "ifcFurnishingElement", "ifcFurniture", "ifcLightFixture", "ifcSanitaryTerminal",
+  "ifcSensor", "ifcSign", "ifcSwitchingDevice", "ifcWall", "ifcWindow",
+];
 
 export default function DetectionsTable({ rows: initialRows, onReview, onUpdate, onSelect, editDetectionId }) {
   const [rows, setRows] = useState(initialRows || []);
@@ -9,6 +16,8 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
   const [sortBy, setSortBy] = useState("date_desc");
   const [editingBboxId, setEditingBboxId] = useState(null);
   const [bboxDraft, setBboxDraft] = useState([0.5, 0.5, 0.2, 0.2]);
+  const [editingClassId, setEditingClassId] = useState(null);
+  const [classDraft, setClassDraft] = useState("");
 
   useEffect(() => {
     setRows(initialRows || []);
@@ -23,7 +32,42 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
     if (onSelect) onSelect(target);
   }, [editDetectionId, rows]);
 
+  const startEditClass = (row) => {
+    setEditingBboxId(null);
+    setEditingClassId(row.id);
+    setClassDraft(row.ifc_class || IFC_CLASSES[0]);
+  };
+
+  const saveClass = async (detectionId) => {
+    try {
+      setLoadingId(detectionId);
+      setError(null);
+      const result = await updateDetectionClass(detectionId, classDraft);
+      const updated = result?.detection || {};
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === detectionId
+            ? { ...r, ifc_class: updated.ifc_class || classDraft, label_display: updated.label_display }
+            : r
+        )
+      );
+      if (onUpdate) {
+        onUpdate(rows.map((r) =>
+          r.id === detectionId
+            ? { ...r, ifc_class: updated.ifc_class || classDraft, label_display: updated.label_display }
+            : r
+        ));
+      }
+      setEditingClassId(null);
+    } catch (err) {
+      setError(`Failed to update class: ${err.message}`);
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
   const startEditBbox = (row) => {
+    setEditingClassId(null);
     setEditingBboxId(row.id);
     const current = Array.isArray(row.bbox_xywh) && row.bbox_xywh.length === 4
       ? row.bbox_xywh
@@ -216,7 +260,37 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
               <tr key={r.id} style={S.trBody} onClick={() => onSelect && onSelect(r)}>
                 <td style={S.td}>#{r.id}</td>
                 <td style={S.td}>
-                  <span style={S.classLabel}>{r.ifc_class || r.label_display}</span>
+                  {editingClassId === r.id ? (
+                    <div style={S.classEditor}>
+                      <select
+                        value={classDraft}
+                        onChange={(e) => setClassDraft(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        style={S.classSelect}
+                      >
+                        {IFC_CLASSES.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                      <div style={S.bboxButtons}>
+                        <button
+                          style={S.bboxSave}
+                          onClick={(e) => { e.stopPropagation(); saveClass(r.id); }}
+                          disabled={loadingId === r.id}
+                        >
+                          Save
+                        </button>
+                        <button
+                          style={S.bboxCancel}
+                          onClick={(e) => { e.stopPropagation(); setEditingClassId(null); }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={S.classLabel}>{r.ifc_class || r.label_display}</span>
+                  )}
                 </td>
                 <td style={S.td}>
                   <div style={S.confidenceContainer}>
@@ -349,6 +423,21 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
                       title="Edit bounding box"
                     >
                       <i className="fas fa-vector-square"></i>
+                    </button>
+                    <button
+                      style={{
+                        ...S.actionButton,
+                        backgroundColor: "rgba(255, 167, 38, 0.15)",
+                        color: "#ffa726"
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEditClass(r);
+                      }}
+                      disabled={loadingId === r.id}
+                      title="Edit class"
+                    >
+                      <i className="fas fa-tag"></i>
                     </button>
                   </div>
                 </td>
@@ -528,6 +617,20 @@ const S = {
   rejectButton: {
     backgroundColor: "rgba(239, 83, 80, 0.2)",
     color: "#ef5350",
+  },
+  classEditor: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  classSelect: {
+    backgroundColor: "rgba(13, 27, 42, 0.8)",
+    border: "1px solid #2a4d69",
+    color: "#e0f7fa",
+    padding: "4px 6px",
+    borderRadius: "4px",
+    fontSize: "0.8rem",
+    width: "100%",
   },
   bboxEditor: {
     display: "flex",

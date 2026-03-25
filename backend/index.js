@@ -185,6 +185,45 @@ app.get("/detections", async (req, res) => {
   }
 });
 
+const VALID_IFC_CLASSES = new Set([
+  "ifcDoor", "ifcSign", "ifcWall", "ifcFurniture", "ifcLightFixture",
+  "ifcAirTerminal", "ifcComputer", "ifcSwitchingDevice", "ifcSensor",
+  "ifcWindow", "ifcAudioVisualAppliance", "ifcElectricalOutlet",
+  "ifcSanitaryTerminal", "ifcEquipmentElement", "ifcFurnishingElement",
+  "ifcDuctSegment", "ifcController",
+]);
+
+app.post("/detection/:id/class", async (req, res) => {
+  const id = Number(req.params.id);
+  const { ifc_class } = req.body || {};
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ ok: false, error: "Invalid detection id" });
+  }
+  if (!ifc_class || !VALID_IFC_CLASSES.has(ifc_class)) {
+    return res.status(400).json({ ok: false, error: "Invalid IFC class" });
+  }
+
+  const label_display = "IFC " + ifc_class
+    .replace(/^ifc/, "")
+    .replace(/([A-Z])/g, " $1")
+    .trim();
+
+  try {
+    const { rows } = await pool.query(
+      "UPDATE detections SET ifc_class = $2, label_display = $3 WHERE id = $1 RETURNING *",
+      [id, ifc_class, label_display]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ ok: false, error: "Detection not found" });
+    }
+    res.json({ ok: true, detection: rows[0] });
+  } catch (e) {
+    console.error("Update class error:", e);
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
 // Update normalized bounding box for a single detection
 app.post("/detection/:id/bbox", async (req, res) => {
   const id = Number(req.params.id);

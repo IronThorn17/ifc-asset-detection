@@ -34,6 +34,19 @@ export async function exportDatabase() {
   return res.json();
 }
 
+export async function updateDetectionClass(detectionId, ifc_class) {
+  const res = await fetch(`${API}/detection/${detectionId}/class`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ifc_class }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "Failed to update class");
+    throw new Error(text || "Failed to update class");
+  }
+  return res.json();
+}
+
 export async function updateDetectionBbox(detectionId, bbox_xywh) {
   const res = await fetch(`${API}/detection/${detectionId}/bbox`, {
     method: "POST",
