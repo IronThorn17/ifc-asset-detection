@@ -134,7 +134,7 @@ export default function App() {
     loadData();
   }, [panoId, view, load, loadAssets, loadFaces]);
 
-  const handleReview = async (_detectionId, _action) => {
+  const handleReview = async () => {
     // API call is handled by DetectionsTable
     // We just need to refresh the data eventually to ensure consistency
     try {
