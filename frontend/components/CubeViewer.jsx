@@ -16,7 +16,7 @@ export default function CubeViewer({
   const detGroupRef = useRef(null);
   const raycasterRef = useRef(new THREE.Raycaster());
   const onDetClickRef = useRef(onDetectionClick);
-  
+
   // View state refs to allow access from multiple effects
   const viewState = useRef({ yaw: 0, pitch: 0 });
 
@@ -30,14 +30,14 @@ export default function CubeViewer({
   const rectOnFace = (face, cx, cy, w, h, size = 1000) => {
     const clamp01 = (n) => Math.max(0, Math.min(1, n));
     cx = clamp01(cx); cy = clamp01(cy); w = clamp01(w); h = clamp01(h);
-    
+
     const X = (cx - 0.5) * size;
     const Y = (0.5 - cy) * size; // invert Y
     const halfW = (w * size) / 2;
     const halfH = (h * size) / 2;
 
-    let p1, p2, p3, p4; 
-    
+    let p1, p2, p3, p4;
+
     switch (face) {
       case "front": {
         const z = 499;
@@ -68,7 +68,7 @@ export default function CubeViewer({
       }
       case "right": {
         const x = 499;
-        const Z = -(cx - 0.5) * size; 
+        const Z = -(cx - 0.5) * size;
         const halfWz = halfW;
         p1 = new THREE.Vector3(x, Y + halfH, Z - halfWz);
         p2 = new THREE.Vector3(x, Y + halfH, Z + halfWz);
@@ -110,29 +110,29 @@ export default function CubeViewer({
   // Handle focus on detection
   useEffect(() => {
     if (!focusedDetection) return;
-    
+
     const d = focusedDetection;
     const bbox = Array.isArray(d.bbox_xywh) ? d.bbox_xywh : null;
     const face = d.face_id || d.face || "front";
-    
+
     if (bbox) {
       const [cx, cy, w, h] = bbox;
       // Get 3D coordinates of the detection center
       const points = rectOnFace(face, cx, cy, w, h);
-      
+
       // Calculate center point of the rectangle
       const center = new THREE.Vector3()
         .addVectors(points[0], points[2])
         .multiplyScalar(0.5);
-      
+
       // Convert to yaw/pitch
       // pitch is rotation around X axis (looking up/down)
       // yaw is rotation around Y axis (looking left/right)
-      
+
       const r = Math.sqrt(center.x * center.x + center.z * center.z);
       const pitch = Math.atan2(center.y, r);
       const yaw = Math.atan2(center.x, center.z);
-      
+
       // Update view state - Note: Three.js camera usually looks at -Z, 
       // but our "front" is +Z (499).
       // If we use lookAt, Three.js handles it. 
@@ -145,16 +145,16 @@ export default function CubeViewer({
       // Wait, let's test.
       // If front is +Z, we need to rotate 180 deg around Y.
       // Let's try standard math and see.
-      
+
       // Adjust yaw because camera looks at -Z by default
       // If point is at +Z, yaw should be PI.
       // atan2(x, z) for (0, 499) is 0.
       // So we likely need yaw = atan2(x, z) + PI? 
       // Or just standard LookAt logic.
-      
+
       viewState.current.pitch = pitch;
       viewState.current.yaw = yaw + Math.PI; // Look towards the point
-      
+
       // Ensure pitch is clamped
       const clamp = Math.PI / 2 - 0.01;
       viewState.current.pitch = Math.max(-clamp, Math.min(clamp, viewState.current.pitch));
@@ -225,7 +225,7 @@ export default function CubeViewer({
     let isDown = false;
     let lx = 0, ly = 0;
     let moveDistSq = 0;
-    
+
     const onDown = (e) => {
       isDown = true;
       lx = e.clientX;
@@ -271,10 +271,10 @@ export default function CubeViewer({
       const dy = e.clientY - ly;
       lx = e.clientX; ly = e.clientY;
       moveDistSq += dx * dx + dy * dy;
-      
-      viewState.current.yaw -= dx * 0.0025; 
+
+      viewState.current.yaw -= dx * 0.0025;
       viewState.current.pitch -= dy * 0.0025;
-      
+
       const clamp = Math.PI / 2 - 0.01;
       viewState.current.pitch = Math.max(-clamp, Math.min(clamp, viewState.current.pitch));
     };
@@ -392,13 +392,13 @@ export default function CubeViewer({
       canvas.width = w;
       canvas.height = h;
       // background
-      ctx.fillStyle = `rgba(${Math.round(color.r*255)}, ${Math.round(color.g*255)}, ${Math.round(color.b*255)}, 0.85)`;
+      ctx.fillStyle = `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, 0.85)`;
       ctx.fillRect(0, 0, w, h);
       // text
       ctx.fillStyle = "#ffffff";
       ctx.font = font;
       ctx.textBaseline = "middle";
-      ctx.fillText(text, pad, h/2);
+      ctx.fillText(text, pad, h / 2);
 
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
@@ -410,7 +410,7 @@ export default function CubeViewer({
       return sprite;
     };
 
-    const clamp01 = (n) => Math.max(0, Math.min(1, n));
+
 
     // Map normalized bbox to cube face coordinates
     // (Inner definition removed to use component-level helper)
@@ -486,7 +486,7 @@ export default function CubeViewer({
 
     scene.add(group);
     detGroupRef.current = group;
-  }, [detections, focusedDetection]);
+  }, [detections, focusedDetection, minConfidence, showLabels]);
 
   return (
     <div ref={mountRef} style={S.root}>

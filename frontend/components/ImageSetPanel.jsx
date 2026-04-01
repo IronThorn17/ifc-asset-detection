@@ -27,20 +27,6 @@ export default function ImageSetPanel({ onLoadSet }) {
     });
   };
 
-  const handleLoad = () => {
-    if (Object.keys(files).length === 0) return;
-    onLoadSet?.({
-      top: previews.top,
-      bottom: previews.bottom,
-      front: previews.front,
-      back: previews.back,
-      left: previews.left,
-      right: previews.right,
-      __meta: { ...coords },
-    });
-    setNote("Loaded into viewer.");
-    setTimeout(() => setNote(""), 1200);
-  };
 
   const handleUpload = async () => {
     if (Object.keys(files).length === 0) return;

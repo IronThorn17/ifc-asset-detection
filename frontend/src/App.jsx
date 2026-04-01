@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from "react";
-import { listDetections, reviewDetection, convertDetectionsToAssets, listAssets, listPanoramas, triggerRetraining, getRetrainStatus } from "./api";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { listDetections, convertDetectionsToAssets, listAssets, listPanoramas, triggerRetraining, getRetrainStatus } from "./api";
 import CubeViewer from "../components/CubeViewer";
 import ImageSetPanel from "../components/ImageSetPanel";
 import BulkUploadPanel from "../components/BulkUploadPanel";
@@ -40,7 +40,7 @@ export default function App() {
       .catch((e) => console.error("Failed to list panoramas:", e));
   }, []);
 
-  async function load(current = panoId, quiet = false) {
+  const load = useCallback(async (current = panoId, quiet = false) => {
     if (!current) return;
     try {
       setErr("");
@@ -53,9 +53,9 @@ export default function App() {
     } finally {
       if (!quiet) setLoading(false);
     }
-  }
+  }, [panoId]);
 
-  async function loadAssets() {
+  const loadAssets = useCallback(async () => {
     try {
       setLoading(true);
       if (panoId) {
@@ -72,12 +72,12 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [panoId]);
 
-  async function loadFaces(currentPanoId) {
+  const loadFaces = useCallback(async (currentPanoId) => {
     if (!currentPanoId) return;
     const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-    
+
     try {
       // First, get the panorama data to see which faces exist
       const panoRes = await fetch(`${API_URL}/pano/${currentPanoId}`);
@@ -87,10 +87,10 @@ export default function App() {
         setViewerFaces({});
         return;
       }
-      
+
       const panoData = await panoRes.json();
       const availableFaces = {};
-      
+
       // Only include faces that have a non-null value in the database
       if (panoData.img_top) availableFaces.top = `${API_URL}/pano/${currentPanoId}/image/top`;
       if (panoData.img_bottom) availableFaces.bottom = `${API_URL}/pano/${currentPanoId}/image/bottom`;
@@ -98,16 +98,16 @@ export default function App() {
       if (panoData.img_back) availableFaces.back = `${API_URL}/pano/${currentPanoId}/image/back`;
       if (panoData.img_left) availableFaces.left = `${API_URL}/pano/${currentPanoId}/image/left`;
       if (panoData.img_right) availableFaces.right = `${API_URL}/pano/${currentPanoId}/image/right`;
-      
+
       setViewerFaces(availableFaces);
-      
+
       // Log available faces for debugging
       console.log('Available faces:', Object.keys(availableFaces));
     } catch (e) {
       console.error("Error loading panorama faces:", e);
       setViewerFaces({});
     }
-  }
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -132,9 +132,9 @@ export default function App() {
       }
     }
     loadData();
-  }, [panoId, view]);
+  }, [panoId, view, load, loadAssets, loadFaces]);
 
-  const handleReview = async (detectionId, action) => {
+  const handleReview = async (_detectionId, _action) => {
     // API call is handled by DetectionsTable
     // We just need to refresh the data eventually to ensure consistency
     try {
@@ -144,7 +144,7 @@ export default function App() {
       console.error('Refresh failed:', e);
     }
   };
-  
+
   // Update the detections when they change
   const handleDetectionsUpdate = (updatedDetections) => {
     setRows(updatedDetections);
@@ -245,7 +245,7 @@ export default function App() {
                   disabled={!panoId || conversionLoading || loading}
                   style={S.convertBtn}
                 >
-                  <i className="fas fa-cube"></i> 
+                  <i className="fas fa-cube"></i>
                   {conversionLoading ? "Converting..." : "Convert to Assets"}
                 </button>
               )}
@@ -265,10 +265,10 @@ export default function App() {
             {retrain.status === "running"
               ? retrain.phase === "training" ? "Training..." : "Exporting..."
               : retrain.status === "done"
-              ? "Retrain Done"
-              : retrain.status === "error"
-              ? "Retrain Failed"
-              : "Retrain Model"}
+                ? "Retrain Done"
+                : retrain.status === "error"
+                  ? "Retrain Failed"
+                  : "Retrain Model"}
           </button>
           <Spinner show={loading || conversionLoading} />
         </div>
@@ -290,8 +290,8 @@ export default function App() {
                   </div>
                 </div>
                 <div style={S.viewerSquare}>
-                  <CubeViewer 
-                    faces={viewerFaces} 
+                  <CubeViewer
+                    faces={viewerFaces}
                     detections={rows}
                     minConfidence={minConf}
                     showLabels={showLabels}
@@ -307,8 +307,8 @@ export default function App() {
                 <div style={S.viewerControls}>
                   <label style={S.ctrlLabel}>
                     Min confidence
-                    <input 
-                      type="range" 
+                    <input
+                      type="range"
                       min={0} max={1} step={0.01}
                       value={minConf}
                       onChange={(e) => setMinConf(parseFloat(e.target.value))}
@@ -317,7 +317,7 @@ export default function App() {
                     <span style={S.ctrlValue}>{minConf.toFixed(2)}</span>
                   </label>
                   <label style={S.ctrlLabelRow}>
-                    <input 
+                    <input
                       type="checkbox"
                       checked={showLabels}
                       onChange={(e) => setShowLabels(e.target.checked)}
@@ -334,9 +334,9 @@ export default function App() {
                 </div>
                 <ErrorNote err={err} />
                 <div style={S.scrollArea}>
-                  <DetectionsTable 
-                    rows={rows} 
-                    onReview={handleReview} 
+                  <DetectionsTable
+                    rows={rows}
+                    onReview={handleReview}
                     onUpdate={handleDetectionsUpdate}
                     onSelect={(det) => {
                       setFocusedDetection(det);

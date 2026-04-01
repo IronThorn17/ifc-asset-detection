@@ -11,7 +11,7 @@ const IFC_CLASSES = [
 export default function DetectionsTable({ rows: initialRows, onReview, onUpdate, onSelect, editDetectionId }) {
   const [rows, setRows] = useState(initialRows || []);
   const [loadingId, setLoadingId] = useState(null);
-  const [error, setError] = useState(null);
+
   const [filterStatus, setFilterStatus] = useState("all");
   const [sortBy, setSortBy] = useState("date_desc");
   const [editingBboxId, setEditingBboxId] = useState(null);
@@ -30,7 +30,7 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
     if (!target) return;
     startEditBbox(target);
     if (onSelect) onSelect(target);
-  }, [editDetectionId, rows]);
+  }, [editDetectionId, rows, onSelect]);
 
   const startEditClass = (row) => {
     setEditingBboxId(null);
@@ -41,7 +41,7 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
   const saveClass = async (detectionId) => {
     try {
       setLoadingId(detectionId);
-      setError(null);
+
       const result = await updateDetectionClass(detectionId, classDraft);
       const updated = result?.detection || {};
       setRows((prev) =>
@@ -60,7 +60,7 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
       }
       setEditingClassId(null);
     } catch (err) {
-      setError(`Failed to update class: ${err.message}`);
+      console.error(err);
     } finally {
       setLoadingId(null);
     }
@@ -88,7 +88,7 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
   const saveBbox = async (detectionId) => {
     try {
       setLoadingId(detectionId);
-      setError(null);
+
       const payload = Array.isArray(bboxDraft) && bboxDraft.length === 4
         ? bboxDraft
         : [0.5, 0.5, 0.2, 0.2];
@@ -110,7 +110,7 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
       setEditingBboxId(null);
     } catch (err) {
       console.error("BBox update failed:", err);
-      setError(`Failed to update bounding box: ${err.message}`);
+      console.error(err);
     } finally {
       setLoadingId(null);
     }
@@ -119,44 +119,44 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
   const handleReview = async (detectionId, action) => {
     try {
       setLoadingId(detectionId);
-      setError(null);
-      
+
+
       // Optimistic update
-      const updatedRows = rows.map(row => 
-        row.id === detectionId 
-          ? { ...row, review_action: action, isUpdating: true } 
+      const updatedRows = rows.map(row =>
+        row.id === detectionId
+          ? { ...row, review_action: action, isUpdating: true }
           : row
       );
       setRows(updatedRows);
-      
+
       // Call API
-      await reviewDetection({ 
-        detection_id: detectionId, 
+      await reviewDetection({
+        detection_id: detectionId,
         action,
         note: `Manually ${action}ed by user`
       });
-      
+
       // Update parent component
       if (onReview) onReview(detectionId, action);
       if (onUpdate) onUpdate(updatedRows);
-      
+
       // Remove loading state
-      setRows(prevRows => 
-        prevRows.map(row => 
-          row.id === detectionId 
-            ? { ...row, review_action: action, isUpdating: false } 
+      setRows(prevRows =>
+        prevRows.map(row =>
+          row.id === detectionId
+            ? { ...row, review_action: action, isUpdating: false }
             : row
         )
       );
     } catch (err) {
       console.error('Review failed:', err);
-      setError(`Failed to ${action} detection: ${err.message}`);
-      
+      console.error(err);
+
       // Revert optimistic update on error
-      setRows(prevRows => 
-        prevRows.map(row => 
-          row.id === detectionId 
-            ? { ...row, isUpdating: false } 
+      setRows(prevRows =>
+        prevRows.map(row =>
+          row.id === detectionId
+            ? { ...row, isUpdating: false }
             : row
         )
       );
@@ -215,7 +215,7 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
         <div style={S.controlGroup}>
           <label style={S.label}>Status:</label>
           <select
-            value={filterStatus} 
+            value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
             style={S.select}
           >
@@ -227,8 +227,8 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
         </div>
         <div style={S.controlGroup}>
           <label style={S.label}>Sort by:</label>
-          <select 
-            value={sortBy} 
+          <select
+            value={sortBy}
             onChange={e => setSortBy(e.target.value)}
             style={S.select}
           >
@@ -297,8 +297,8 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
                     <div style={{
                       ...S.confidenceBar,
                       width: `${(r.confidence || 0) * 100}%`,
-                      backgroundColor: (r.confidence || 0) > 0.7 ? '#66bb6a' : 
-                                    (r.confidence || 0) > 0.4 ? '#ffca28' : '#ef5350'
+                      backgroundColor: (r.confidence || 0) > 0.7 ? '#66bb6a' :
+                        (r.confidence || 0) > 0.4 ? '#ffca28' : '#ef5350'
                     }}></div>
                     <span style={S.confidenceText}>
                       {Math.round((r.confidence || 0) * 100)}%
@@ -361,7 +361,7 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
                 </td>
                 <td style={S.td}>
                   <div style={S.actionsContainer}>
-                    <button 
+                    <button
                       style={{
                         ...S.actionButton,
                         marginRight: '8px',
@@ -376,7 +376,7 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
                     >
                       <i className="fas fa-eye"></i>
                     </button>
-                    <button 
+                    <button
                       style={{
                         ...S.actionButton,
                         ...(r.review_action === 'confirm' ? S.activeButton : {}),
@@ -392,7 +392,7 @@ export default function DetectionsTable({ rows: initialRows, onReview, onUpdate,
                     >
                       <i className="fas fa-check"></i>
                     </button>
-                    <button 
+                    <button
                       style={{
                         ...S.actionButton,
                         ...S.rejectButton,
@@ -456,9 +456,9 @@ const StatusBadge = ({ status }) => {
     reject: { label: 'Rejected', color: '#f44336', bg: '#ffebee' },
     default: { label: 'Pending', color: '#ff9800', bg: '#fff3e0' }
   };
-  
+
   const { label, color, bg } = statusConfig[status] || statusConfig.default;
-  
+
   return (
     <span style={{
       padding: '4px 8px',
@@ -528,10 +528,10 @@ const S = {
     margin: 0,
   },
   tableContainer: {
-    overflowX: "hidden", 
+    overflowX: "hidden",
     borderRadius: "8px",
     boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
-    maxHeight: "40vh", 
+    maxHeight: "40vh",
   },
   table: {
     width: "100%",
