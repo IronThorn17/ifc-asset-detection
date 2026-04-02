@@ -424,9 +424,7 @@ useEffect(() => {
                   <h2>Upload Panoramas</h2>
                 </div>
                 <div style={S.scrollArea}>
-                  <ImageSetPanel
-                    onLoadSet={(facesWithMeta) => setViewerFaces(facesWithMeta)}
-                  />
+                  <ImageSetPanel />
                 </div>
               </div>
             </div>

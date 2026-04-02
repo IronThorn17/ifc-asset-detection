@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 const FACE_KEYS = ["top", "bottom", "front", "back", "left", "right"];
 
-export default function ImageSetPanel({ onLoadSet }) {
+export default function ImageSetPanel() {
   const [coords, setCoords] = useState({
     lat: "",
     lon: "",
