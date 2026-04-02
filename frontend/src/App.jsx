@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { listDetections, convertDetectionsToAssets, listAssets, listPanoramas, triggerRetraining, getRetrainStatus } from "./api";
+
 import CubeViewer from "../components/CubeViewer";
 import ImageSetPanel from "../components/ImageSetPanel";
 import BulkUploadPanel from "../components/BulkUploadPanel";
@@ -25,20 +26,32 @@ export default function App() {
   const [focusedDetection, setFocusedDetection] = useState(null);
   const [editDetectionId, setEditDetectionId] = useState(null);
   const [retrain, setRetrain] = useState({ status: "idle", phase: null, error: null });
+  const [showUnreviewedOnly, setShowUnreviewedOnly] = useState(false);
 
   const pollInterval = useRef(null);
   const retrainPollRef = useRef(null);
 
-  useEffect(() => {
-    // Initial fetch of panoramas to find the latest one
-    listPanoramas()
-      .then((list) => {
-        setPanos(list);
-        if (list.length > 0) setPanoId(list[0].id);
-        else console.warn("No panoramas found");
-      })
-      .catch((e) => console.error("Failed to list panoramas:", e));
-  }, []);
+useEffect(() => {
+  async function fetchPanos() {
+    try {
+      const list = await listPanoramas({
+        unreviewed: showUnreviewedOnly
+      });
+
+      setPanos(list);
+
+      if (list.length > 0) {
+        setPanoId(list[0].id);
+      } else {
+        setPanoId(null);
+      }
+    } catch (e) {
+      console.error("Failed to list panoramas:", e);
+    }
+  }
+
+  fetchPanos();
+}, [showUnreviewedOnly]);
 
   const load = useCallback(async (current = panoId, quiet = false) => {
     if (!current) return;
@@ -232,6 +245,19 @@ export default function App() {
                 onLoad={() => load()}
                 loading={loading}
               />
+              <div style={S.controlGroup}>
+                <label style={S.label}>Panos:</label>
+                <select
+                  value={showUnreviewedOnly ? "unreviewed" : "all"}
+                  onChange={(e) =>
+                    setShowUnreviewedOnly(e.target.value === "unreviewed")
+                  }
+                  style={S.select}
+                >
+                  <option value="all">All</option>
+                  <option value="unreviewed">Needs Review</option>
+                </select>
+              </div>
               <button
                 onClick={() => load()}
                 disabled={!panoId || loading}
@@ -641,4 +667,25 @@ const S = {
     color: "#4a9bff",
     fontWeight: "500",
   },
+
+    controlGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+
+  label: {
+    color: "#bbdefb",
+    fontSize: "0.85rem",
+  },
+
+  select: {
+    backgroundColor: "rgba(13, 27, 42, 0.6)",
+    border: "1px solid #2a4d69",
+    color: "#e0f7fa",
+    padding: "4px 8px",
+    borderRadius: "4px",
+    cursor: "pointer",
+  },
 };
+

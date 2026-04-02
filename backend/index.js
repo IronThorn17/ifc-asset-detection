@@ -150,12 +150,39 @@ app.post(
 );
 
 app.get("/panoramas", async (req, res) => {
+  const { unreviewed } = req.query;
+
   try {
-    const { rows } = await pool.query(
-      "SELECT id, property_id, level, captured_at FROM panoramas ORDER BY captured_at DESC"
-    );
+    let query = `
+      SELECT p.id, p.property_id, p.level, p.captured_at
+      FROM panoramas p
+    `;
+
+    if (unreviewed === "true") {
+      query += `
+        WHERE EXISTS (
+          SELECT 1
+          FROM detections d
+          LEFT JOIN LATERAL (
+            SELECT action
+            FROM reviews r
+            WHERE r.detection_id = d.id
+            ORDER BY created_at DESC
+            LIMIT 1
+          ) r ON true
+          WHERE d.pano_id = p.id
+          AND r.action IS NULL
+        )
+      `;
+    }
+
+    query += ` ORDER BY p.captured_at DESC`;
+
+    const { rows } = await pool.query(query);
     res.json(rows);
+
   } catch (e) {
+    console.error("Panorama fetch error:", e);
     res.status(400).json({ ok: false, error: e.message });
   }
 });
