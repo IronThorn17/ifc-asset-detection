@@ -1,18 +1,54 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { pool } = require("./db");
 const multer = require("multer");
 const { exec } = require("child_process");
 const http = require("http");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+// AWS S3 Setup
+const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+
+const s3Client = process.env.AWS_S3_BUCKET ? new S3Client({
+  region: process.env.AWS_REGION || "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  }
+}) : null;
 
 const ML_HOST = process.env.ML_HOST || "ml";
 const ML_PORT = 5001;
+const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_for_dev_only";
 
+// --- MIDDLEWARE ---
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: "Forbidden" });
+    req.user = user;
+    next();
+  });
+};
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+});
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// --- HELPERS ---
 function mlPost(path) {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { hostname: ML_HOST, port: ML_PORT, path, method: "POST",
-        headers: { "Content-Length": 0 } },
+      { hostname: ML_HOST, port: ML_PORT, path, method: "POST", headers: { "Content-Length": 0 } },
       (res) => {
         let data = "";
         res.on("data", (c) => (data += c));
@@ -40,150 +76,75 @@ function mlGet(path) {
   });
 }
 
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
-});
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-// --- HELPERS ---
 const toNum = (v) => {
   if (v === undefined || v === null || v === "") return null;
   const num = Number(v);
   return isNaN(num) ? null : num;
 };
 
-const getFile = (req, key) => req.files?.[key]?.[0] ?? null;
+// --- AUTH ROUTES ---
+app.post("/login", async (req, res) => {
+  const { username, password } = req.body;
+  if (username === "admin" && password === "admin123") {
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '24h' });
+    return res.json({ token, username });
+  }
+  res.status(401).json({ error: "Invalid credentials" });
+});
 
-// --- ROUTES ---
+// --- API ROUTES ---
 app.get("/health", (_, res) => res.json({ ok: true }));
-app.get("/health/db", async (_, res) => {
+
+app.post("/ingest/pano-file", authenticateToken, upload.single("file"), async (req, res) => {
   try {
-    const r = await pool.query("SELECT NOW() AS now");
-    res.json({ ok: true, now: r.rows[0].now });
+    const { property_id, level, lat, lon, heading_deg, faces_json } = req.body;
+    let faces = {};
+    try { faces = JSON.parse(faces_json || "{}"); } catch (e) { }
+
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: "No file provided" });
+
+    let s3Key = null;
+    if (s3Client) {
+      s3Key = `panoramas/${Date.now()}_${file.originalname}`;
+      await s3Client.send(new PutObjectCommand({
+        Bucket: process.env.AWS_S3_BUCKET,
+        Key: s3Key,
+        Body: file.buffer,
+        ContentType: file.mimetype
+      }));
+    }
+
+    const q = `
+      INSERT INTO panoramas (property_id, level, lat, lon, captured_at, faces_json, image_content_type, image_byte_length, s3_key_front, img_front)
+      VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, $8, $9)
+      RETURNING id
+    `;
+    const { rows } = await pool.query(q, [
+      toNum(property_id), level, toNum(lat), toNum(lon), faces, file.mimetype, file.size, s3Key, s3Key ? null : file.buffer
+    ]);
+
+    res.json({ ok: true, pano_id: rows[0].id, s3_key: s3Key });
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.post(
-  "/ingest/pano-set",
-  upload.fields([
-    { name: "top", maxCount: 1 },
-    { name: "bottom", maxCount: 1 },
-    { name: "front", maxCount: 1 },
-    { name: "back", maxCount: 1 },
-    { name: "left", maxCount: 1 },
-    { name: "right", maxCount: 1 },
-  ]),
-  async (req, res) => {
-    try {
-      const { property_id, level, lat, lon, alt, timestamp, area } = req.body || {};
-
-      const uploadedFiles = ["top", "bottom", "front", "back", "left", "right"]
-        .map(key => getFile(req, key))
-        .filter(Boolean);
-
-      if (uploadedFiles.length === 0) {
-        return res.status(400).json({ 
-          ok: false, 
-          error: "At least one face image is required" 
-        });
-      }
-      
-      const primaryFile = uploadedFiles[0];
-
-      const facesJson = {
-        faces: uploadedFiles.reduce((acc, file) => {
-          acc[file.fieldname] = true;
-          return acc;
-        }, {}),
-        meta: {
-          lat: toNum(lat),
-          lon: toNum(lon),
-          alt: toNum(alt),
-          area: toNum(area),
-          timestamp: timestamp ? new Date(timestamp).toISOString() : null,
-          property_id: property_id ? Number(property_id) : null,
-          level: level || null,
-        },
-      };
-
-      const q = `
-        INSERT INTO panoramas
-          (property_id, level, lat, lon, alt, captured_at, faces_json,
-           img_top, img_bottom, img_front, img_back, img_left, img_right,
-           image_content_type, image_byte_length)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-        RETURNING id
-      `;
-
-      const params = [
-        property_id ? Number(property_id) : null,
-        level || null,
-        toNum(lat),
-        toNum(lon),
-        toNum(alt),
-        timestamp ? new Date(timestamp) : new Date(),
-        facesJson,
-        getFile(req, "top")?.buffer ?? null,
-        getFile(req, "bottom")?.buffer ?? null,
-        getFile(req, "front")?.buffer ?? null,
-        getFile(req, "back")?.buffer ?? null,
-        getFile(req, "left")?.buffer ?? null,
-        getFile(req, "right")?.buffer ?? null,
-        primaryFile.mimetype || "image/jpeg",
-        primaryFile.size ?? null,
-      ];
-
-      const { rows } = await pool.query(q, params);
-      res.json({ ok: true, pano_id: rows[0].id });
-    } catch (e) {
-      console.error("Upload error:", e);
-      res.status(400).json({ ok: false, error: e.message });
-    }
-  }
-);
-
 app.get("/panoramas", async (req, res) => {
   const { unreviewed } = req.query;
-
   try {
-    let query = `
-      SELECT p.id, p.property_id, p.level, p.captured_at
-      FROM panoramas p
-    `;
-
+    let query = "SELECT id, property_id, level, captured_at FROM panoramas";
     if (unreviewed === "true") {
-      query += `
-        WHERE EXISTS (
-          SELECT 1
-          FROM detections d
-          LEFT JOIN LATERAL (
-            SELECT action
-            FROM reviews r
-            WHERE r.detection_id = d.id
-            ORDER BY created_at DESC
-            LIMIT 1
-          ) r ON true
-          WHERE d.pano_id = p.id
-          AND r.action IS NULL
-        )
-      `;
+      query += ` WHERE EXISTS (
+        SELECT 1 FROM detections d
+        LEFT JOIN LATERAL (SELECT action FROM reviews r WHERE r.detection_id = d.id ORDER BY created_at DESC LIMIT 1) r ON true
+        WHERE d.pano_id = panoramas.id AND r.action IS NULL
+      )`;
     }
-
-    query += ` ORDER BY p.captured_at DESC`;
-
-    const { rows } = await pool.query(query);
+    const { rows } = await pool.query(query + " ORDER BY captured_at DESC");
     res.json(rows);
-
   } catch (e) {
-    console.error("Panorama fetch error:", e);
-    res.status(400).json({ ok: false, error: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -191,275 +152,15 @@ app.get("/detections", async (req, res) => {
   const { pano_id } = req.query;
   try {
     const { rows } = await pool.query(
-      `SELECT d.*, 
-              r.action as review_action,
-              r.created_at as review_created_at
-       FROM detections d
-       LEFT JOIN LATERAL (
-         SELECT action, created_at
-         FROM reviews
-         WHERE detection_id = d.id
-         ORDER BY created_at DESC
-         LIMIT 1
-       ) r ON true
-       WHERE d.pano_id = $1 
-       ORDER BY d.created_at DESC`,
-      [pano_id]
-    );
-    res.json(rows);
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
-const VALID_IFC_CLASSES = new Set([
-  "ifcDoor", "ifcSign", "ifcWall", "ifcFurniture", "ifcLightFixture",
-  "ifcAirTerminal", "ifcComputer", "ifcSwitchingDevice", "ifcSensor",
-  "ifcWindow", "ifcAudioVisualAppliance", "ifcElectricalOutlet",
-  "ifcSanitaryTerminal", "ifcEquipmentElement", "ifcFurnishingElement",
-  "ifcDuctSegment", "ifcController",
-]);
-
-app.post("/detection/:id/class", async (req, res) => {
-  const id = Number(req.params.id);
-  const { ifc_class } = req.body || {};
-
-  if (!Number.isInteger(id) || id <= 0) {
-    return res.status(400).json({ ok: false, error: "Invalid detection id" });
-  }
-  if (!ifc_class || !VALID_IFC_CLASSES.has(ifc_class)) {
-    return res.status(400).json({ ok: false, error: "Invalid IFC class" });
-  }
-
-  const label_display = "IFC " + ifc_class
-    .replace(/^ifc/, "")
-    .replace(/([A-Z])/g, " $1")
-    .trim();
-
-  try {
-    const { rows } = await pool.query(
-      "UPDATE detections SET ifc_class = $2, label_display = $3 WHERE id = $1 RETURNING *",
-      [id, ifc_class, label_display]
-    );
-    if (!rows.length) {
-      return res.status(404).json({ ok: false, error: "Detection not found" });
-    }
-    res.json({ ok: true, detection: rows[0] });
-  } catch (e) {
-    console.error("Update class error:", e);
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
-// Update normalized bounding box for a single detection
-app.post("/detection/:id/bbox", async (req, res) => {
-  const id = Number(req.params.id);
-  const { bbox_xywh } = req.body || {};
-
-  if (!Number.isInteger(id) || id <= 0) {
-    return res.status(400).json({ ok: false, error: "Invalid detection id" });
-  }
-
-  if (!Array.isArray(bbox_xywh) || bbox_xywh.length !== 4) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "bbox_xywh must be an array of four numbers" });
-  }
-
-  try {
-    const cleaned = bbox_xywh.map((v) => {
-      const num = Number(v);
-      if (!Number.isFinite(num)) {
-        throw new Error("bbox values must be finite numbers");
-      }
-      // clamp to [0, 1] since these are normalized coordinates
-      return Math.max(0, Math.min(1, num));
-    });
-
-    const { rows } = await pool.query(
-      "UPDATE detections SET bbox_xywh = $2 WHERE id = $1 RETURNING *",
-      [id, cleaned]
-    );
-
-    if (!rows.length) {
-      return res.status(404).json({ ok: false, error: "Detection not found" });
-    }
-
-    res.json({ ok: true, detection: rows[0] });
-  } catch (e) {
-    console.error("Update bbox error:", e);
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
-app.get("/assets", async (req, res) => {
-  const { property_id } = req.query;
-  try {
-    let query = `
-      SELECT a.*, p.name as property_name
-      FROM assets a
-      LEFT JOIN properties p ON a.property_id = p.id
-    `;
-    const params = [];
-    
-    if (property_id) {
-      query += " WHERE a.property_id = $1";
-      params.push(property_id);
-    }
-    
-    query += " ORDER BY a.created_at DESC";
-    
-    const { rows } = await pool.query(query, params);
-    res.json(rows);
-  } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
-app.post("/review", async (req, res) => {
-  const { detection_id, action, new_class, note } = req.body || {};
-  try {
-    // 1. Record the review
-    await pool.query(
-      `INSERT INTO reviews (detection_id, reviewer, action, new_class, note)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [detection_id, "student", action, new_class || null, note || null]
-    );
-
-    // 2. If confirmed, create asset (if not already exists)
-    if (action === 'confirm') {
-      // Check if asset already exists for this detection
-      const { rows: existing } = await pool.query(
-        "SELECT id FROM assets WHERE $1 = ANY(source_detection_ids)",
-        [detection_id]
-      );
-
-      if (existing.length === 0) {
-        // Fetch detection and panorama details
-        const { rows: dets } = await pool.query(
-          `SELECT d.*, p.property_id, p.lat, p.lon, p.alt
-           FROM detections d
-           JOIN panoramas p ON d.pano_id = p.id
-           WHERE d.id = $1`,
-          [detection_id]
-        );
-
-        if (dets.length > 0) {
-          const det = dets[0];
-          
-          // Create geometry
-          let geometry = null;
-          if (det.lat !== null && det.lon !== null) {
-            geometry = {
-              type: "Point",
-              coordinates: [det.lon, det.lat, det.alt || 0]
-            };
-          }
-
-          // Insert asset
-          await pool.query(
-            `INSERT INTO assets (
-              property_id, ifc_class, status, source_detection_ids, attributes_json, geometry
-            ) VALUES (
-              $1, $2, 'confirmed', ARRAY[$3]::int[], $4, ST_GeomFromGeoJSON($5)
-            )`,
-            [
-              det.property_id,
-              new_class || det.ifc_class,
-              det.id,
-              JSON.stringify({
-                confidence: det.confidence,
-                face_id: det.face_id,
-                bbox_xywh: det.bbox_xywh,
-                model_version: det.model_version,
-                ...(det.sphere_coords_json || {}),
-              }),
-              geometry ? JSON.stringify(geometry) : null
-            ]
-          );
-        }
-      }
-    }
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error("Review error:", e);
-    res.status(400).json({ ok: false, error: e.message });
-  }
-});
-
-app.post("/convert-to-assets", async (req, res) => {
-  const { pano_id } = req.body || {};
-  try {
-    // Get all confirmed detections for this panorama
-    const { rows: detections } = await pool.query(
       `SELECT d.*, r.action as review_action
        FROM detections d
-       LEFT JOIN reviews r ON d.id = r.detection_id
-       WHERE d.pano_id = $1 AND r.action = 'confirm'
-       ORDER BY d.created_at DESC`,
+       LEFT JOIN LATERAL (SELECT action FROM reviews WHERE detection_id = d.id ORDER BY created_at DESC LIMIT 1) r ON true
+       WHERE d.pano_id = $1 ORDER BY d.created_at DESC`,
       [pano_id]
     );
-
-    if (detections.length === 0) {
-      return res.status(400).json({ ok: false, error: "No confirmed detections found for this panorama" });
-    }
-
-    // Get the property_id from the panorama
-    const { rows: panoramaRows } = await pool.query(
-      "SELECT id, property_id, lat, lon, alt FROM panoramas WHERE id = $1",
-      [pano_id]
-    );
-
-    if (panoramaRows.length === 0) {
-      return res.status(400).json({ ok: false, error: "Panorama not found" });
-    }
-
-    const { property_id, lat, lon, alt } = panoramaRows[0];
-
-    // Convert each confirmed detection to an asset
-    const assetIds = [];
-    for (const detection of detections) {
-      // Create a basic point geometry from panorama coordinates
-      let geometry = null;
-      if (lat !== null && lon !== null) {
-        geometry = {
-          type: "Point",
-          coordinates: [lon, lat, alt || 0]
-        };
-      }
-
-      const { rows: assetRows } = await pool.query(
-        `INSERT INTO assets (
-          property_id, ifc_class, status, source_detection_ids, attributes_json, geometry
-        ) VALUES (
-          $1, $2, 'confirmed', ARRAY[$3], $4, ST_GeomFromGeoJSON($5)
-        ) RETURNING id`,
-        [
-          property_id,
-          detection.ifc_class,
-          detection.id,
-          JSON.stringify({
-            confidence: detection.confidence,
-            face_id: detection.face_id,
-            bbox_xywh: detection.bbox_xywh,
-            model_version: detection.model_version,
-            ...(detection.sphere_coords_json || {}),
-          }),
-          geometry ? JSON.stringify(geometry) : null
-        ]
-      );
-      assetIds.push(assetRows[0].id);
-    }
-
-    res.json({ 
-      ok: true, 
-      message: `Converted ${detections.length} detections to assets`,
-      asset_ids: assetIds
-    });
+    res.json(rows);
   } catch (e) {
-    console.error("Convert to assets error:", e);
-    res.status(400).json({ ok: false, error: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -467,90 +168,150 @@ app.get("/pano/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { rows } = await pool.query(
-      "SELECT * FROM panoramas WHERE id = $1",
+      `SELECT id, property_id, level, lat, lon, captured_at, faces_json, 
+              s3_key_top IS NOT NULL as img_top, 
+              s3_key_bottom IS NOT NULL as img_bottom, 
+              s3_key_front IS NOT NULL as img_front, 
+              s3_key_back IS NOT NULL as img_back, 
+              s3_key_left IS NOT NULL as img_left, 
+              s3_key_right IS NOT NULL as img_right 
+       FROM panoramas WHERE id=$1`,
       [id]
     );
-    if (rows.length === 0) {
-      return res.status(404).json({ ok: false, error: "Panorama not found" });
-    }
+    if (!rows.length) return res.status(404).send("Not found");
     res.json(rows[0]);
   } catch (e) {
-    res.status(400).json({ ok: false, error: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
 app.get("/pano/:id/image/:face", async (req, res) => {
   try {
     const { id, face } = req.params;
-    if (!["top", "bottom", "front", "back", "left", "right"].includes(face))
-      return res.status(400).send("Invalid face");
+    const { rows } = await pool.query(`SELECT img_${face} AS img, s3_key_${face} AS s3_key, image_content_type FROM panoramas WHERE id=$1`, [id]);
+    if (!rows.length) return res.status(404).send("Not found");
 
-    const q = `SELECT img_${face} AS img, image_content_type FROM panoramas WHERE id=$1`;
-    const { rows } = await pool.query(q, [id]);
-    if (!rows.length || !rows[0].img) return res.status(404).send("Not found");
+    if (rows[0].s3_key) {
+      // Proxy the image from S3 to avoid CORS issues in the browser
+      const bucket = process.env.AWS_S3_BUCKET || "v2-immersionviewer";
+      const s3Url = `https://${bucket}.s3.amazonaws.com/${rows[0].s3_key}`;
+      const https = require("https");
+      https.get(s3Url, (s3res) => {
+        if (s3res.statusCode !== 200) {
+          return res.status(s3res.statusCode).send("S3 fetch failed");
+        }
+        res.set("Content-Type", s3res.headers["content-type"] || "image/jpeg");
+        res.set("Cache-Control", "public, max-age=3600");
+        s3res.pipe(res);
+      }).on("error", (err) => {
+        console.error("S3 proxy error:", err.message);
+        res.status(500).send("Failed to fetch image from S3");
+      });
+      return;
+    }
 
+    if (!rows[0].img) return res.status(404).send("Not found");
     res.set("Content-Type", rows[0].image_content_type || "image/jpeg");
     res.send(rows[0].img);
   } catch (e) {
-    console.error("Error fetching panorama image:", e);
     res.status(500).send("Server error");
   }
 });
 
-app.post("/ml/retrain", async (req, res) => {
+app.post("/detection/:id/class", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { ifc_class } = req.body;
+  try {
+    const label_display = "IFC " + ifc_class.replace(/^ifc/, "").replace(/([A-Z])/g, " $1").trim();
+    const result = await pool.query(
+      "UPDATE detections SET ifc_class = $1, label_display = $2 WHERE id = $3 RETURNING *",
+      [ifc_class, label_display, id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/detection/:id/bbox", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { bbox_xywh } = req.body;
+  try {
+    const result = await pool.query(
+      "UPDATE detections SET bbox_xywh = $1 WHERE id = $2 RETURNING *",
+      [bbox_xywh, id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/review", authenticateToken, async (req, res) => {
+  const { detection_id, action, new_class, note } = req.body;
+  try {
+    await pool.query(
+      `INSERT INTO reviews (detection_id, reviewer, action, new_class, note) VALUES ($1, $2, $3, $4, $5)`,
+      [detection_id, "admin", action, new_class || null, note || null]
+    );
+    if (action === "confirm") {
+      const assetCheck = await pool.query("SELECT id FROM assets WHERE detection_id = $1", [detection_id]);
+      if (assetCheck.rows.length === 0) {
+        const detResult = await pool.query(
+          "SELECT d.*, p.property_id, p.level, p.lat, p.lon, p.alt FROM detections d JOIN panoramas p ON d.pano_id = p.id WHERE d.id = $1",
+          [detection_id]
+        );
+        if (detResult.rows.length > 0) {
+          const d = detResult.rows[0];
+          await pool.query(
+            "INSERT INTO assets (property_id, level, ifc_class, label_display, lat, lon, alt, detection_id, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'confirmed')",
+            [d.property_id, d.level, d.ifc_class, d.label_display, d.lat, d.lon, d.alt, d.id]
+          );
+        }
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/assets", async (req, res) => {
+  const { property_id } = req.query;
+  try {
+    let query = "SELECT a.*, p.name as property_name FROM assets a LEFT JOIN properties p ON a.property_id = p.id";
+    const params = [];
+    if (property_id) {
+      query += " WHERE a.property_id = $1";
+      params.push(property_id);
+    }
+    const { rows } = await pool.query(query + " ORDER BY a.created_at DESC", params);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/ml/retrain", authenticateToken, async (req, res) => {
   try {
     const { status, body } = await mlPost("/retrain");
     res.status(status).json(body);
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.get("/ml/retrain/status", async (req, res) => {
+app.get("/ml/retrain/status", authenticateToken, async (req, res) => {
   try {
     const { status, body } = await mlGet("/retrain/status");
     res.status(status).json(body);
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.post("/ml/export-dataset", async (req, res) => {
-  try {
-    console.log("Starting dataset export...");
-
-    exec(
-      "docker exec ifc_ml python /app/export_database.py",
-      (error, stdout, stderr) => {
-
-        if (error) {
-          console.error("Export error:", error);
-          return res.status(500).json({
-            ok: false,
-            error: stderr || error.message
-          });
-        }
-
-        console.log("Export output:", stdout);
-
-        res.json({
-          ok: true,
-          message: "Dataset exported successfully",
-          output: stdout
-        });
-      }
-    );
-
-  } catch (e) {
-    console.error("Export endpoint error:", e);
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-
-const port = process.env.PORT || process.env.API_PORT || 5000;
+const port = process.env.PORT || 5000;
 if (require.main === module) {
   app.listen(port, () => console.log(`Backend on :${port}`));
 }
-
 module.exports = app;

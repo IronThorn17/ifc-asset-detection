@@ -1,16 +1,20 @@
-import os, time, threading, psycopg, cv2, json
+import os, time, threading, psycopg, cv2, json, requests
 import numpy as np
 from ultralytics import YOLO
 import shared
 import server as retrain_server
 
 DB_URL = os.getenv("DB_URL", "postgres://postgres:postgres@db:5432/ifc_assets")
+# Since we are connecting to AWS RDS, we need to ensure SSL is used if needed, 
+# although psycopg often handles it. We'll use the URL as provided.
 POLL_SECS = float(os.getenv("POLL_SECS", "5"))
 _PREFERRED_MODEL = "model/best.pt"
 _FALLBACK_MODEL = "model/20260311.pt"
 MODEL_PATH = _PREFERRED_MODEL if os.path.isfile(_PREFERRED_MODEL) else _FALLBACK_MODEL
 MODEL_VERSION = "20260311.pt"
 model = YOLO(MODEL_PATH)
+
+AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "v2-immersionviewer")
 
 # Load IFC class mapping
 IFC_CLASS_MAPPING = {}
@@ -138,6 +142,19 @@ def save_detection_row(conn, pano_id, face_id, box, img_w, img_h):
             )
         """, det)
 
+def fetch_s3_image(s3_key):
+    """Fetch image bytes from S3 public URL."""
+    url = f"https://{AWS_S3_BUCKET}.s3.amazonaws.com/{s3_key}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.content
+        else:
+            print(f"[ERROR] Failed to fetch {url}: {response.status_code}")
+    except Exception as e:
+        print(f"[ERROR] S3 fetch error for {url}: {e}")
+    return None
+
 # -------------------------------------------
 # MAIN PROCESS
 # -------------------------------------------
@@ -152,10 +169,36 @@ def process_pano(conn, pano_id):
             (pano_id, MODEL_VERSION),
         )
 
-    for face_name, col_name in PANO_FACES.items():
-        face_bytes = load_face_bytes(conn, pano_id, col_name)
+    # Fetch both blob columns and S3 keys
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT 
+                img_front, img_back, img_left, img_right, img_top, img_bottom,
+                s3_key_front, s3_key_back, s3_key_left, s3_key_right, s3_key_top, s3_key_bottom
+            FROM panoramas WHERE id = %s
+        """, (pano_id,))
+        row = cur.fetchone()
+        if not row:
+            print(f"[ERROR] Pano {pano_id} not found in DB")
+            return
+
+    # Unpack columns correctly (6 blobs, then 6 keys)
+    blobs = row[0:6]
+    keys = row[6:12]
+    face_names = list(PANO_FACES.keys())
+
+    for i in range(6):
+        face_name = face_names[i]
+        face_bytes = blobs[i]
+        s3_key = keys[i]
+
+        # If blob is missing, try S3
+        if face_bytes is None and s3_key:
+            print(f"[ML] Fetching {face_name} face from S3: {s3_key}")
+            face_bytes = fetch_s3_image(s3_key)
+
         if not face_bytes:
-            print(f"[WARN] {face_name} face missing for pano {pano_id}")
+            print(f"[WARN] {face_name} face missing/unreachable for pano {pano_id}")
             continue
 
         print(f"[ML] Running YOLO on face: {face_name}")

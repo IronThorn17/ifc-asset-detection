@@ -9,6 +9,7 @@ import DetectionsTable from "../components/DetectionsTable";
 import AssetsTable from "../components/AssetsTable";
 import ErrorNote from "../components/ErrorNote";
 import Spinner from "../components/Spinner";
+import Login from "../components/Login";
 
 export default function App() {
   const [panoId, setPanoId] = useState(null);
@@ -18,6 +19,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [view, setView] = useState("review"); // 'review' | 'upload' | 'assets'
+  const [user, setUser] = useState(null);
+  const [authChecking, setAuthChecking] = useState(true);
   const [viewerFaces, setViewerFaces] = useState(null);
   const [conversionLoading, setConversionLoading] = useState(false);
   const [convertNote, setConvertNote] = useState("");
@@ -28,30 +31,39 @@ export default function App() {
   const [retrain, setRetrain] = useState({ status: "idle", phase: null, error: null });
   const [showUnreviewedOnly, setShowUnreviewedOnly] = useState(false);
 
-  const pollInterval = useRef(null);
   const retrainPollRef = useRef(null);
+  const pollInterval = useRef(null);
 
-useEffect(() => {
-  async function fetchPanos() {
-    try {
-      const list = await listPanoramas({
-        unreviewed: showUnreviewedOnly
-      });
-
-      setPanos(list);
-
-      if (list.length > 0) {
-        setPanoId(list[0].id);
-      } else {
-        setPanoId(null);
-      }
-    } catch (e) {
-      console.error("Failed to list panoramas:", e);
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      setUser({ username: localStorage.getItem("username") || "User" });
     }
-  }
+    setAuthChecking(false);
+  }, []);
 
-  fetchPanos();
-}, [showUnreviewedOnly]);
+  useEffect(() => {
+    if (!user) return;
+    async function fetchPanos() {
+      try {
+        const list = await listPanoramas({
+          unreviewed: showUnreviewedOnly
+        });
+
+        setPanos(list);
+
+        if (list.length > 0) {
+          setPanoId(list[0].id);
+        } else {
+          setPanoId(null);
+        }
+      } catch (e) {
+        console.error("Failed to list panoramas:", e);
+      }
+    }
+
+    fetchPanos();
+  }, [showUnreviewedOnly, user]);
 
   const load = useCallback(async (current = panoId, quiet = false) => {
     if (!current) return;
@@ -130,6 +142,7 @@ useEffect(() => {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
     async function loadData() {
       if (view === "assets") {
         await loadAssets();
@@ -200,6 +213,9 @@ useEffect(() => {
       setConversionLoading(false);
     }
   }
+
+  if (authChecking) return <div style={S.appShell}><Spinner /></div>;
+  if (!user) return <Login onLogin={(u) => setUser(u)} />;
 
   return (
     <div style={S.appShell}>
@@ -276,6 +292,21 @@ useEffect(() => {
                 </button>
               )}
             </>
+          )}
+          {user && (
+            <div style={S.userControl}>
+              <span style={S.username}>{user.username}</span>
+              <button
+                onClick={() => {
+                  localStorage.removeItem("token");
+                  localStorage.removeItem("username");
+                  setUser(null);
+                }}
+                style={S.logoutBtn}
+              >
+                Logout
+              </button>
+            </div>
           )}
           <button
             onClick={handleRetrain}
@@ -493,6 +524,34 @@ const S = {
     color: "white",
     borderColor: "#4a9bff",
   },
+  viewBtnActive: {
+    backgroundColor: "#4a9bff",
+    color: "white",
+  },
+  userControl: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    marginLeft: "auto",
+    padding: "0 10px",
+    borderLeft: "1px solid #333",
+  },
+  username: {
+    color: "#90a4ae",
+    fontSize: "13px",
+  },
+  logoutBtn: {
+    padding: "6px 12px",
+    backgroundColor: "transparent",
+    border: "1px solid #444",
+    borderRadius: "4px",
+    color: "#f44336",
+    fontSize: "12px",
+    cursor: "pointer",
+  },
+  main: {
+    flex: 1,
+  },
   refreshBtn: {
     backgroundColor: "#4a9bff",
     color: "white",
@@ -666,7 +725,7 @@ const S = {
     fontWeight: "500",
   },
 
-    controlGroup: {
+  controlGroup: {
     display: "flex",
     alignItems: "center",
     gap: "8px",

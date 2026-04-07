@@ -1,5 +1,13 @@
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+function getHeaders(contentType = "application/json") {
+  const token = localStorage.getItem("token");
+  const headers = {};
+  if (contentType) headers["Content-Type"] = contentType;
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
+}
+
 export async function listPanoramas({ unreviewed } = {}) {
   let url = `${API}/panoramas`;
 
@@ -7,7 +15,7 @@ export async function listPanoramas({ unreviewed } = {}) {
     url += "?unreviewed=true";
   }
 
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: getHeaders(null) });
 
   if (!res.ok) throw new Error("Failed to load panoramas");
 
@@ -15,29 +23,30 @@ export async function listPanoramas({ unreviewed } = {}) {
 }
 
 export async function listDetections(panoId) {
-  const res = await fetch(`${API}/detections?pano_id=${panoId}`);
+  const res = await fetch(`${API}/detections?pano_id=${panoId}`, { headers: getHeaders(null) });
   if (!res.ok) throw new Error("Failed to load detections");
   return res.json();
 }
 
 export async function triggerRetraining() {
-  const res = await fetch(`${API}/ml/retrain`, { method: "POST" });
+  const res = await fetch(`${API}/ml/retrain`, { method: "POST", headers: getHeaders(null) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to start retraining");
   return data;
 }
 
 export async function getRetrainStatus() {
-  const res = await fetch(`${API}/ml/retrain/status`);
+  const res = await fetch(`${API}/ml/retrain/status`, { headers: getHeaders(null) });
   if (!res.ok) throw new Error("Failed to get retrain status");
   return res.json();
 }
 
 export async function exportDatabase() {
-  const res = await fetch(`${API}/ml/export-dataset`,{
-    method: "POST"
+  const res = await fetch(`${API}/ml/export-dataset`, {
+    method: "POST",
+    headers: getHeaders(null)
   });
-  
+
   if (!res.ok) throw new Error("Failed to export");
   return res.json();
 }
@@ -45,7 +54,7 @@ export async function exportDatabase() {
 export async function updateDetectionClass(detectionId, ifc_class) {
   const res = await fetch(`${API}/detection/${detectionId}/class`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getHeaders(),
     body: JSON.stringify({ ifc_class }),
   });
   if (!res.ok) {
@@ -58,7 +67,7 @@ export async function updateDetectionClass(detectionId, ifc_class) {
 export async function updateDetectionBbox(detectionId, bbox_xywh) {
   const res = await fetch(`${API}/detection/${detectionId}/bbox`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getHeaders(),
     body: JSON.stringify({ bbox_xywh }),
   });
   if (!res.ok) {
@@ -76,7 +85,7 @@ export async function reviewDetection({
 }) {
   const res = await fetch(`${API}/review`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getHeaders(),
     body: JSON.stringify({ detection_id, action, new_class, note }),
   });
   if (!res.ok) throw new Error("Review failed");
@@ -86,7 +95,7 @@ export async function reviewDetection({
 export async function convertDetectionsToAssets(panoId) {
   const res = await fetch(`${API}/convert-to-assets`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getHeaders(),
     body: JSON.stringify({ pano_id: panoId }),
   });
   if (!res.ok) {
@@ -97,10 +106,10 @@ export async function convertDetectionsToAssets(panoId) {
 }
 
 export async function listAssets(propertyId) {
-  const url = propertyId 
+  const url = propertyId
     ? `${API}/assets?property_id=${propertyId}`
     : `${API}/assets`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: getHeaders(null) });
   if (!res.ok) throw new Error("Failed to load assets");
   return res.json();
 }
@@ -128,6 +137,7 @@ export async function ingestPanoramaWithFile({
 
   const res = await fetch(`${API}/ingest/pano-file`, {
     method: "POST",
+    headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` },
     body: fd,
   });
   if (!res.ok) {
@@ -136,4 +146,3 @@ export async function ingestPanoramaWithFile({
   }
   return res.json();
 }
-
