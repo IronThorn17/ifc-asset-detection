@@ -107,10 +107,6 @@ The system includes a secure login flow.
 
 ---
 
-## 🤝 Team Handoff Notes
-
-- Use `.env.example` as template; each teammate should set their own AWS credentials.
-- Do not commit `.env` or live credentials.
 - If detections are empty after DB reset/import, run:
 ```bash
 python tmp/run_yolo_once.py
