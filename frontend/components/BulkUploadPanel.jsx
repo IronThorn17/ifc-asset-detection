@@ -64,10 +64,11 @@ export default function BulkUploadPanel() {
           const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
           const res = await fetch(`${API_URL}/ingest/pano-set`, {
             method: "POST",
+            headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
             body: formData,
           });
 
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (data.ok) {
             success++;
           } else {

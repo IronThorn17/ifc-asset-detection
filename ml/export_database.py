@@ -6,7 +6,7 @@ import numpy as np
 
 DB_URL = os.getenv("DB_URL")
 
-OUT = "/app/dataset"
+OUT = "dataset"
 
 
 CLASS_MAP = {

@@ -1,4 +1,4 @@
-require("dotenv").config();
+require("dotenv").config({ override: true });
 const express = require("express");
 const cors = require("cors");
 const { pool } = require("./db");
@@ -39,6 +39,14 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
 });
+const uploadPanoSet = upload.fields([
+  { name: "top", maxCount: 1 },
+  { name: "bottom", maxCount: 1 },
+  { name: "front", maxCount: 1 },
+  { name: "back", maxCount: 1 },
+  { name: "left", maxCount: 1 },
+  { name: "right", maxCount: 1 },
+]);
 
 const app = express();
 app.use(cors());
@@ -97,16 +105,14 @@ app.get("/health", (_, res) => res.json({ ok: true }));
 
 app.post("/ingest/pano-file", authenticateToken, upload.single("file"), async (req, res) => {
   try {
-    const { property_id, level, lat, lon, heading_deg, faces_json } = req.body;
-    let faces = {};
-    try { faces = JSON.parse(faces_json || "{}"); } catch (e) { }
-
+    const { property_id, level, lat, lon, alt, faces } = req.body;
     const file = req.file;
-    if (!file) return res.status(400).json({ error: "No file provided" });
-
     let s3Key = null;
-    if (s3Client) {
-      s3Key = `panoramas/${Date.now()}_${file.originalname}`;
+
+    if (file && process.env.AWS_S3_BUCKET) {
+      const uuid = require('crypto').randomUUID();
+      s3Key = `uploads/panoramas/image/${uuid}/tiles/f/mobile.jpg`;
+      const { PutObjectCommand } = require("@aws-sdk/client-s3");
       await s3Client.send(new PutObjectCommand({
         Bucket: process.env.AWS_S3_BUCKET,
         Key: s3Key,
@@ -115,18 +121,125 @@ app.post("/ingest/pano-file", authenticateToken, upload.single("file"), async (r
       }));
     }
 
+    // Expanded query to support all faces (initializing others to null for now)
     const q = `
-      INSERT INTO panoramas (property_id, level, lat, lon, captured_at, faces_json, image_content_type, image_byte_length, s3_key_front, img_front)
-      VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, $8, $9)
+      INSERT INTO panoramas (
+        property_id, level, lat, lon, alt, captured_at, faces_json, 
+        img_top, img_bottom, img_front, img_back, img_left, img_right,
+        image_content_type, image_byte_length, s3_key_front
+      )
+      VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING id
     `;
+
     const { rows } = await pool.query(q, [
-      toNum(property_id), level, toNum(lat), toNum(lon), faces, file.mimetype, file.size, s3Key, s3Key ? null : file.buffer
+      toNum(property_id), level, toNum(lat), toNum(lon), toNum(alt || 0), faces,
+      null, null, s3Key ? null : file?.buffer, null, null, null,
+      file?.mimetype || "image/jpeg", file?.size || 0, s3Key
     ]);
 
     res.json({ ok: true, pano_id: rows[0].id, s3_key: s3Key });
   } catch (e) {
+    console.error("Upload error:", e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/ingest/pano-set", authenticateToken, uploadPanoSet, async (req, res) => {
+  try {
+    const {
+      property_id,
+      level,
+      lat,
+      lon,
+      alt,
+      heading_deg,
+      timestamp,
+    } = req.body;
+
+    const files = req.files || {};
+    const top = files.top?.[0] || null;
+    const bottom = files.bottom?.[0] || null;
+    const front = files.front?.[0] || null;
+    const back = files.back?.[0] || null;
+    const left = files.left?.[0] || null;
+    const right = files.right?.[0] || null;
+
+    if (!front && !back) {
+      return res.status(400).json({
+        ok: false,
+        error: "At least one of front/back images is required",
+      });
+    }
+
+    const parsedCapturedAt = timestamp ? new Date(timestamp) : null;
+    const capturedAt =
+      parsedCapturedAt && !Number.isNaN(parsedCapturedAt.getTime())
+        ? parsedCapturedAt
+        : new Date();
+
+    const faces = {
+      top: Boolean(top),
+      bottom: Boolean(bottom),
+      front: Boolean(front),
+      back: Boolean(back),
+      left: Boolean(left),
+      right: Boolean(right),
+    };
+
+    const faces_json = {
+      faces,
+      meta: {
+        lat: toNum(lat),
+        lon: toNum(lon),
+        alt: toNum(alt || 0),
+        timestamp: capturedAt.toISOString(),
+        property_id: toNum(property_id),
+        level: level || null,
+      },
+    };
+
+    const imageByteLength = [top, bottom, front, back, left, right]
+      .filter(Boolean)
+      .reduce((sum, f) => sum + (f.size || 0), 0);
+
+    const q = `
+      INSERT INTO panoramas (
+        property_id, level, lat, lon, alt, heading_deg, captured_at, faces_json,
+        img_top, img_bottom, img_front, img_back, img_left, img_right,
+        image_content_type, image_byte_length
+      )
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11, $12, $13, $14,
+        $15, $16
+      )
+      RETURNING id
+    `;
+
+    const { rows } = await pool.query(q, [
+      toNum(property_id),
+      level || null,
+      toNum(lat),
+      toNum(lon),
+      toNum(alt || 0),
+      toNum(heading_deg || 0),
+      capturedAt,
+      faces_json,
+      top?.buffer || null,
+      bottom?.buffer || null,
+      front?.buffer || null,
+      back?.buffer || null,
+      left?.buffer || null,
+      right?.buffer || null,
+      "image/jpeg",
+      imageByteLength,
+    ]);
+
+    res.json({ ok: true, pano_id: rows[0].id });
+  } catch (e) {
+    console.error("Pano set upload error:", e);
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
@@ -169,12 +282,12 @@ app.get("/pano/:id", async (req, res) => {
     const { id } = req.params;
     const { rows } = await pool.query(
       `SELECT id, property_id, level, lat, lon, captured_at, faces_json, 
-              s3_key_top IS NOT NULL as img_top, 
-              s3_key_bottom IS NOT NULL as img_bottom, 
-              s3_key_front IS NOT NULL as img_front, 
-              s3_key_back IS NOT NULL as img_back, 
-              s3_key_left IS NOT NULL as img_left, 
-              s3_key_right IS NOT NULL as img_right 
+              (s3_key_top IS NOT NULL OR img_top IS NOT NULL) as img_top, 
+              (s3_key_bottom IS NOT NULL OR img_bottom IS NOT NULL) as img_bottom, 
+              (s3_key_front IS NOT NULL OR img_front IS NOT NULL) as img_front, 
+              (s3_key_back IS NOT NULL OR img_back IS NOT NULL) as img_back, 
+              (s3_key_left IS NOT NULL OR img_left IS NOT NULL) as img_left, 
+              (s3_key_right IS NOT NULL OR img_right IS NOT NULL) as img_right 
        FROM panoramas WHERE id=$1`,
       [id]
     );
@@ -192,22 +305,28 @@ app.get("/pano/:id/image/:face", async (req, res) => {
     if (!rows.length) return res.status(404).send("Not found");
 
     if (rows[0].s3_key) {
-      // Proxy the image from S3 to avoid CORS issues in the browser
-      const bucket = process.env.AWS_S3_BUCKET || "v2-immersionviewer";
-      const s3Url = `https://${bucket}.s3.amazonaws.com/${rows[0].s3_key}`;
-      const https = require("https");
-      https.get(s3Url, (s3res) => {
-        if (s3res.statusCode !== 200) {
-          return res.status(s3res.statusCode).send("S3 fetch failed");
-        }
-        res.set("Content-Type", s3res.headers["content-type"] || "image/jpeg");
-        res.set("Cache-Control", "public, max-age=3600");
-        s3res.pipe(res);
-      }).on("error", (err) => {
-        console.error("S3 proxy error:", err.message);
-        res.status(500).send("Failed to fetch image from S3");
+      if (!s3Client) return res.status(500).send("S3 is not configured");
+
+      const bucket = process.env.AWS_S3_BUCKET;
+      const cmd = new GetObjectCommand({
+        Bucket: bucket,
+        Key: rows[0].s3_key,
       });
-      return;
+
+      try {
+        const s3obj = await s3Client.send(cmd);
+        res.set("Content-Type", s3obj.ContentType || rows[0].image_content_type || "image/jpeg");
+        res.set("Cache-Control", "public, max-age=3600");
+        if (s3obj.Body && typeof s3obj.Body.pipe === "function") {
+          s3obj.Body.pipe(res);
+          return;
+        }
+        const bytes = await s3obj.Body.transformToByteArray();
+        return res.send(Buffer.from(bytes));
+      } catch (err) {
+        console.error("S3 getObject error:", err.message);
+        return res.status(500).send("Failed to fetch image from S3");
+      }
     }
 
     if (!rows[0].img) return res.status(404).send("Not found");

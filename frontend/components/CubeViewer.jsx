@@ -175,6 +175,8 @@ export default function CubeViewer({
     renderer.setPixelRatio(window.devicePixelRatio);
     mount.appendChild(renderer.domElement);
 
+    scene.scale.x = 1; // Native Three.js inner view is already naturally oriented (no mirroring needed)
+
     sceneRef.current = scene;
     cameraRef.current = camera;
     rendererRef.current = renderer;
@@ -186,6 +188,8 @@ export default function CubeViewer({
     const f = faces || {};
     const materials = [];
     const order = [
+      // BoxGeometry material order: +X, -X, +Y, -Y, +Z, -Z.
+      // From inside the cube, +X is the viewer's right and -X is left.
       ["px", f.right],
       ["nx", f.left],
       ["py", f.top],
@@ -269,11 +273,11 @@ export default function CubeViewer({
       if (!isDown) return;
       const dx = e.clientX - lx;
       const dy = e.clientY - ly;
-      lx = e.clientX; ly = e.clientY;
-      moveDistSq += dx * dx + dy * dy;
+      lx = e.clientX;
+      ly = e.clientY;
 
-      viewState.current.yaw -= dx * 0.0025;
-      viewState.current.pitch -= dy * 0.0025;
+      viewState.current.yaw += dx * 0.005;
+      viewState.current.pitch += dy * 0.005;
 
       const clamp = Math.PI / 2 - 0.01;
       viewState.current.pitch = Math.max(-clamp, Math.min(clamp, viewState.current.pitch));
