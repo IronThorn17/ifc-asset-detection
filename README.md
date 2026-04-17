@@ -24,12 +24,26 @@ Copy the example environment file and add your AWS/Database keys:
 cp .env.example .env
 ```
 
-### 2. Launch (Docker Recommended)
-Standard deployment with persistent cloud connectivity:
+Also copy the same values into `backend/.env` when running backend directly.
+
+Required minimum variables:
+- `DATABASE_URL` (or `DB_URL`) -> AWS RDS PostgreSQL
+- `AWS_S3_BUCKET` -> current project bucket
+- `AWS_REGION` -> `us-east-1`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `JWT_SECRET`
+
+### 2. Launch
+Docker deployment:
 ```bash
 docker compose up -d
 ```
 Access the dashboard at: `http://localhost:5173`
+
+Local development:
+- Backend: `http://localhost:5000`
+- Frontend: `http://localhost:5173`
 
 ---
 
@@ -59,6 +73,24 @@ python main.py
 
 ---
 
+## 🖼️ Panorama Data + Storage Model
+
+- Panorama faces are stored in **AWS S3** and referenced by `s3_key_*` columns in `panoramas`.
+- `img_*` blob columns are intentionally left empty in cloud mode.
+- Top/Bottom (`u`/`d`) faces appear only when those files exist in the source dataset.
+
+### Current import source
+- CSV: `Datasets/Images/scsu_panorama_ids_dataset.csv`
+- Images: `Datasets/Images/**`
+
+### Re-run one-time YOLO detections on imported panoramas
+```bash
+python tmp/run_yolo_once.py
+```
+This runs inference with `ml/model/best.pt` and writes rows into `detections`.
+
+---
+
 ## 🔐 Authentication
 The system includes a secure login flow. 
 - **Default Username:** `admin`
@@ -71,3 +103,11 @@ The system includes a secure login flow.
 - `/frontend`: Reingineered React dashboard with 3D Viewport.
 - `/ml`: Python YOLO inference engine (S3-compatible).
 - `/Datasets`: Research labels and panorama mappings.
+- `/tmp/run_yolo_once.py`: one-time detection backfill script for imported S3 panoramas.
+
+---
+
+- If detections are empty after DB reset/import, run:
+```bash
+python tmp/run_yolo_once.py
+```

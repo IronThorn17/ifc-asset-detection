@@ -15,12 +15,12 @@ LOCK_TIMEOUT_MS = 5000
 def clear_database():
     try:
         conn = psycopg2.connect(
-        dbname="ifc_assets",
-        user="postgres",
-        password="postgres",
-        host="db",
-        port="5432",
-    )
+            dbname="ifc_assets",
+            user="postgres",
+            password="postgrespassword",
+            host="ifc-asset-db.c4decyoca1od.us-east-1.rds.amazonaws.com",
+            port="5432",
+        )
 
         conn.autocommit = False
         cur = conn.cursor()

@@ -1,8 +1,9 @@
-import os, time, threading, psycopg, cv2, json, requests
+import os, time, threading, psycopg, cv2, json
 import numpy as np
 from ultralytics import YOLO
 import shared
 import server as retrain_server
+import boto3
 
 DB_URL = os.getenv("DB_URL", "postgres://postgres:postgres@db:5432/ifc_assets")
 # Since we are connecting to AWS RDS, we need to ensure SSL is used if needed, 
@@ -15,6 +16,8 @@ MODEL_VERSION = "20260311.pt"
 model = YOLO(MODEL_PATH)
 
 AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "v2-immersionviewer")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+_s3_client = None
 
 # Load IFC class mapping
 IFC_CLASS_MAPPING = {}
@@ -142,18 +145,26 @@ def save_detection_row(conn, pano_id, face_id, box, img_w, img_h):
             )
         """, det)
 
+def get_s3_client():
+    global _s3_client
+    if _s3_client is None:
+        _s3_client = boto3.client(
+            "s3",
+            region_name=AWS_REGION,
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        )
+    return _s3_client
+
+
 def fetch_s3_image(s3_key):
-    """Fetch image bytes from S3 public URL."""
-    url = f"https://{AWS_S3_BUCKET}.s3.amazonaws.com/{s3_key}"
+    """Fetch image bytes from S3 using authenticated API."""
     try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.content
-        else:
-            print(f"[ERROR] Failed to fetch {url}: {response.status_code}")
+        obj = get_s3_client().get_object(Bucket=AWS_S3_BUCKET, Key=s3_key)
+        return obj["Body"].read()
     except Exception as e:
-        print(f"[ERROR] S3 fetch error for {url}: {e}")
-    return None
+        print(f"[ERROR] S3 get_object failed for key {s3_key}: {e}")
+        return None
 
 # -------------------------------------------
 # MAIN PROCESS

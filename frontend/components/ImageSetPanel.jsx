@@ -51,10 +51,11 @@ export default function ImageSetPanel() {
       const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
       const res = await fetch(`${API_URL}/ingest/pano-set`, {
         method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
         body: formData,
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.ok) {
         setNote(`Successfully uploaded (pano_id=${data.pano_id})`);
         // Clear files and previews after successful upload

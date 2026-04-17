@@ -16,8 +16,8 @@ COMMIT_EVERY = 10
 DB_CONFIG = {
     "dbname": "ifc_assets",
     "user": "postgres",
-    "password": "postgres",
-    "host": "db",
+    "password": "postgrespassword",
+    "host": "ifc-asset-db.c4decyoca1od.us-east-1.rds.amazonaws.com",
     "port": "5432",
 }
 
@@ -249,15 +249,11 @@ def upload_panoramas(base_dir, csv_path=None):
             if not os.path.isfile(csv_path):
                 print(f"Warning: CSV file not found: {csv_path}. Skipping CSV loading.")
             else:
-                print(f"Loading metadata and top/bottom URLs from CSV: {csv_path}")
-                csv_metadata, ud_urls = load_csv_metadata(csv_path)
+                print(f"Loading metadata from CSV: {csv_path}")
+                csv_metadata, _ = load_csv_metadata(csv_path)
                 print(f"  Found metadata for {len(csv_metadata)} panoramas.")
-                print(f"  Found top/bottom URLs for {len(ud_urls)} panoramas.")
+                print(f"  (Top/Bottom image downloading disabled to prevent mismatch. Using ZIP contents only.)")
 
-                if ud_urls:
-                    download_dir = os.path.join(base_dir, "ud_downloads")
-                    downloaded = download_ud_images(ud_urls, download_dir)
-                    print(f"  Downloaded top/bottom images for {len(downloaded)} panoramas.")
 
         # Scan local image directory
         print(f"\nScanning directory: {base_dir}")
@@ -284,7 +280,10 @@ def upload_panoramas(base_dir, csv_path=None):
         success_count = 0
         error_count = 0
 
-        for i, (pano_id, faces) in enumerate(tqdm(grouped.items(), desc="Uploading panoramas"), 1):
+        # Sort grouped by integer pano_id to guarantee consistent IDs
+        sorted_grouped = sorted(grouped.items(), key=lambda x: int(x[0]) if x[0].isdigit() else x[0])
+
+        for i, (pano_id, faces) in enumerate(tqdm(sorted_grouped, desc="Uploading panoramas"), 1):
             try:
                 face_bytes = {k: read_image_bytes(v) for k, v in faces.items()}
                 metadata = csv_metadata.get(pano_id)

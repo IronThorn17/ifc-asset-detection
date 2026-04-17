@@ -9,12 +9,12 @@ app = Flask(__name__)
 _state = {"status": "idle", "phase": None, "error": None}
 _lock = threading.Lock()
 
-EXPORT_OUTPUT_DIR = "/app/dataset"
+EXPORT_OUTPUT_DIR = "dataset"
 
 
 def _run_retrain():
     result = subprocess.run(
-        ["python", "/app/export_database.py"],
+        ["python", "export_database.py"],
         capture_output=True,
         text=True,
         timeout=600,
@@ -31,7 +31,7 @@ def _run_retrain():
 
     env = {**os.environ, "EXPORT_OUTPUT_DIR": EXPORT_OUTPUT_DIR}
     result2 = subprocess.run(
-        ["python", "/app/train.py"],
+        ["python", "train.py"],
         capture_output=True,
         text=True,
         timeout=3600,
