@@ -17,15 +17,15 @@ services:
     restart: unless-stopped
     depends_on:
       - db
-    environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/ifc_assets
-      PORT: 5000
     ports:
       - "5000:5000"
     volumes:
       - ./backend:/app
       - /app/node_modules
-    env_file: [.env]
+    env_file:
+      - .env
+    environment:
+      PORT: 5000
 
   frontend:
     build: ./frontend
