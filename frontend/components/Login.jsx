@@ -27,7 +27,7 @@ export default function Login({ onLogin }) {
             } else {
                 setError(data.error || "Login failed");
             }
-        } catch (err) {
+        } catch {
             setError("Server unreachable");
         } finally {
             setLoading(false);

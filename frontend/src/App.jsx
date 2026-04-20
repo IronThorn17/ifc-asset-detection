@@ -158,7 +158,7 @@ export default function App() {
       }
     }
     loadData();
-  }, [panoId, view, load, loadAssets, loadFaces]);
+  }, [panoId, view, load, loadAssets, loadFaces, user]);
 
   const handleReview = async () => {
     // API call is handled by DetectionsTable
