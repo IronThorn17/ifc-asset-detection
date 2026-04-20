@@ -4,6 +4,7 @@ from ultralytics import YOLO
 import shared
 import server as retrain_server
 import boto3
+from utils import normalize_bbox, is_valid_face_column, load_ifc_class_mapping
 
 DB_URL = os.getenv("DB_URL", "postgres://postgres:postgres@db:5432/ifc_assets")
 # Since we are connecting to AWS RDS, we need to ensure SSL is used if needed, 
@@ -19,13 +20,7 @@ AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET", "v2-immersionviewer")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 _s3_client = None
 
-# Load IFC class mapping
-IFC_CLASS_MAPPING = {}
-try:
-    with open('ifc_class_mapping.json', 'r') as f:
-        IFC_CLASS_MAPPING = json.load(f)
-except Exception as e:
-    print(f"Warning: Could not load IFC class mapping: {e}")
+IFC_CLASS_MAPPING = load_ifc_class_mapping()
 
 # -------------------------------------------
 # DB HELPERS
@@ -58,8 +53,7 @@ def get_unprocessed_panos(conn):
 
 def load_face_bytes(conn, pano_id, face_column):
     """Load one face of the panorama."""
-    # Validate face_column is one of the allowed values to prevent SQL injection
-    if face_column not in PANO_FACES.values():
+    if not is_valid_face_column(face_column):
         raise ValueError(f"Invalid face_column: {face_column}")
 
     with conn.cursor() as cur:
@@ -88,29 +82,7 @@ def save_detection_row(conn, pano_id, face_id, box, img_w, img_h):
 
     # YOLO xyxy -> normalized xywh (center x, center y, width, height)
     x1, y1, x2, y2 = box.xyxy.tolist()[0]
-    
-    # Convert to center x,y, width, height
-    box_w = float(x2 - x1)
-    box_h = float(y2 - y1)
-    center_x = float(x1 + box_w / 2)
-    center_y = float(y1 + box_h / 2)
-
-    # Normalize coordinates if image dimensions are valid
-    if img_w > 0 and img_h > 0:
-        norm_cx = center_x / img_w
-        norm_cy = center_y / img_h
-        norm_w = box_w / img_w
-        norm_h = box_h / img_h
-        
-        bbox_xywh = [
-            max(0.0, min(1.0, norm_cx)),
-            max(0.0, min(1.0, norm_cy)),
-            max(0.0, min(1.0, norm_w)),
-            max(0.0, min(1.0, norm_h)),
-        ]
-    else:
-        # Fallback for invalid image dimensions
-        bbox_xywh = [0, 0, 0, 0]
+    bbox_xywh = normalize_bbox(x1, y1, x2, y2, img_w, img_h)
 
     # Get enhanced class information
     class_info = IFC_CLASS_MAPPING.get(label, {})
